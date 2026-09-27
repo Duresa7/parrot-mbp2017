@@ -81,9 +81,11 @@ def _statuses(fixes: list[Fix], ctx: Context) -> dict[str, Status]:
 
 def _fix_table(fixes: list[Fix], statuses: dict[str, Status], ui: UI) -> None:
     ui.table(("#", "Fix", "Status", "Summary"),
-             [(index, fix.id, statuses[fix.id].state.value,
-               fix.summary + (" " + statuses[fix.id].detail if statuses[fix.id].detail else ""))
+             [(index, fix.id, statuses[fix.id].state.value, fix.summary)
               for index, fix in enumerate(fixes, 1)])
+    for fix in fixes:
+        if statuses[fix.id].detail:
+            ui.detail(f"{fix.id}: {statuses[fix.id].detail}")
 
 
 def _warnings(ctx: Context) -> None:
@@ -115,7 +117,7 @@ def _health(fixes: list[Fix], ctx: Context) -> list[Health]:
 def _apply(fixes: list[Fix], ctx: Context, *, remove: bool = False) -> int:
     changed, failures, notes, after, completed = [], [], [], set(), set()
     by_id = {fix.id: fix for fix in fixes}
-    for fix in fixes:
+    for fix in reversed(fixes) if remove else fixes:
         if fix.id not in ctx.options.selected:
             continue
         try:
@@ -159,6 +161,16 @@ def _apply(fixes: list[Fix], ctx: Context, *, remove: bool = False) -> int:
 
 def main(argv: list[str] | None = None, *, system: System | None = None,
          stdin: TextIO | None = None, stdout: TextIO | None = None) -> int:
+    out = sys.stdout if stdout is None else stdout
+    try:
+        return _main(argv, system=system, stdin=stdin, stdout=out)
+    except KeyboardInterrupt:
+        print("Stopped. Changes made so far are recorded; run status to see where things stand.", file=out)
+        return 130
+
+
+def _main(argv: list[str] | None = None, *, system: System | None = None,
+          stdin: TextIO | None = None, stdout: TextIO | None = None) -> int:
     inp = sys.stdin if stdin is None else stdin
     out = sys.stdout if stdout is None else stdout
     parser = _parser(out)
@@ -227,14 +239,19 @@ def main(argv: list[str] | None = None, *, system: System | None = None,
         if not hw.supported and not args.force:
             ui.error("This hardware is not supported. Use --force only if you want to apply fixes anyway.")
             return 3
-        if not system.is_root() and not system.dry_run:
-            ui.error("This command needs administrator access. Run it with sudo, or use --dry-run to preview changes.")
-            return 1
         if command == "setup":
             ui.heading(f"{NAME} {__version__}")
+            ui.info("Sets up Parrot OS on 2016-2017 Touch Bar MacBook Pros. Every change can be undone.")
             ui.table(("Hardware", "Detected"), summary_rows(hw))
             statuses = _statuses(fixes, ctx)
             _fix_table(fixes, statuses, ui)
+        if not system.is_root() and not system.dry_run:
+            ui.error("This command needs administrator access. Run it with sudo, or use --dry-run to preview changes.")
+            return 1
+        if not ui.interactive and not args.yes and not system.dry_run:
+            ui.error("No terminal to ask for confirmation. Re-run with --yes to apply without prompts, "
+                     "or --dry-run to preview.")
+            return 1
         _warnings(ctx)
         if (not hw.is_parrot or not hw.debian13_based) and not ui.confirm("Continue on this distribution?", default=False):
             ui.info("No changes made.")

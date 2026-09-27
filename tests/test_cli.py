@@ -62,6 +62,122 @@ class CLITests(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn('sudo', output)
 
+    def test_nonterminal_mutations_require_yes(self):
+        commands = [[], ['setup'], ['install', 'dummy'], ['remove', 'dummy'],
+                    ['restore-t1', '--online'], ['restore-t1', '--from', '/backup']]
+        for args in commands:
+            with self.subTest(args=args):
+                system = self.fixture()
+                before = self.snapshot(system)
+                with patch('mbp2017.cli.all_fixes', return_value=[DummyFix()]):
+                    result, output = self.call(system, *args)
+                self.assertEqual(result, 1)
+                self.assertIn('No terminal to ask for confirmation. Re-run with --yes to apply '
+                              'without prompts, or --dry-run to preview.', output)
+                self.assertEqual(before, self.snapshot(system))
+                self.assertEqual(system.runner.calls, [])
+
+    def test_nonterminal_dry_run_allowed_for_all_mutations(self):
+        class Backup(DummyFix):
+            id = 't1-backup'
+
+            def restore_t1(self, ctx, source):
+                ctx.system.note(self.id, 'restore', source)
+                return []
+
+        for args in [[], ['setup'], ['install', 'dummy'], ['remove', 'dummy'],
+                     ['restore-t1', '--online'], ['restore-t1', '--from', '/backup']]:
+            with self.subTest(args=args):
+                system = self.fixture(euid=1000)
+                before = self.snapshot(system)
+                with patch('mbp2017.cli.all_fixes', return_value=[DummyFix(), Backup()]):
+                    result, output = self.call(system, *args, '--dry-run')
+                self.assertEqual(result, 0, output)
+                self.assertEqual(before, self.snapshot(system))
+
+    def test_remove_dependents_before_prerequisites(self):
+        removed = []
+
+        class Bridge(DummyFix):
+            id = 't1bridge'
+
+            def remove(self, ctx):
+                removed.append(self.id)
+                return []
+
+        class Desktop(Bridge):
+            id = 'desktop'
+            requires = ('t1bridge',)
+
+        with patch('mbp2017.cli.all_fixes', return_value=[Bridge(), Desktop()]):
+            result, output = self.call(self.fixture(), 'remove', 't1bridge', 'desktop', '--yes')
+        self.assertEqual(result, 0, output)
+        self.assertEqual(removed, ['desktop', 't1bridge'])
+
+    def test_keyboard_interrupt_during_initialization_and_prompt(self):
+        for target in ('_parser', '_Parser.parse_args', 'System', 'UI', 'all_fixes', 'probe', 'UI.confirm'):
+            with self.subTest(target=target):
+                output = io.StringIO()
+                with patch('mbp2017.cli.' + target, side_effect=KeyboardInterrupt):
+                    result = main(['setup', '--yes'],
+                                  system=None if target == 'System' else self.fixture(),
+                                  stdin=io.StringIO(), stdout=output)
+                self.assertEqual(result, 130)
+                self.assertIn('Stopped. Changes made so far are recorded; run status to see '
+                              'where things stand.', output.getvalue())
+                self.assertNotIn('Traceback', output.getvalue())
+
+    def test_keyboard_interrupt_preserves_completed_changes(self):
+        class Interrupted(DummyFix):
+            id = 'interrupted'
+
+            def install(self, ctx):
+                raise KeyboardInterrupt
+
+        system = self.fixture()
+        with patch('mbp2017.cli.all_fixes', return_value=[DummyFix(), Interrupted()]):
+            result, output = self.call(system, 'setup', '--yes')
+        self.assertEqual(result, 130)
+        self.assertTrue(system.notes('dummy')['done'])
+        self.assertIn('Stopped.', output)
+
+    def test_setup_without_root_shows_detection_before_error(self):
+        system = self.fixture(euid=1000)
+        result, output = self.call(system, 'setup')
+        self.assertEqual(result, 1)
+        _, status = self.call(system, 'status')
+        detection = status.split('Health checks')[0].rstrip()
+        self.assertIn(detection, output)
+        self.assertLess(output.index('MacBookPro14,3'), output.index('needs administrator access'))
+        self.assertLess(output.index('Summary'), output.index('needs administrator access'))
+        self.assertFalse(system.exists(System.MANIFEST))
+
+    def test_setup_banner_explains_purpose(self):
+        _, output = self.call(self.fixture(euid=1000), 'setup')
+        self.assertEqual(output.splitlines()[:2], [
+            'parrot-mbp2017 0.1.0',
+            'Sets up Parrot OS on 2016-2017 Touch Bar MacBook Pros. Every change can be undone.',
+        ])
+
+    def test_fix_details_follow_table_in_status_and_setup(self):
+        class Detailed(DummyFix):
+            def status(self, ctx):
+                return Status(State.TODO, 'A separate detail.')
+
+        class Last(DummyFix):
+            id = 'last'
+
+        for command in ('status', 'setup'):
+            with self.subTest(command=command):
+                with patch('mbp2017.cli.all_fixes', return_value=[Detailed(), Last()]):
+                    _, output = self.call(self.fixture(euid=1000), command)
+                lines = output.splitlines()
+                rows = [line for line in lines if line.startswith(('1 ', '2 '))]
+                self.assertEqual(len(rows), 2)
+                self.assertTrue(all(line.endswith('An example.') for line in rows))
+                self.assertEqual(lines[lines.index(rows[-1]) + 1], '  dummy: A separate detail.')
+                self.assertNotIn('  last:', output)
+
     def test_dry_run_install_writes_nothing(self):
         system = self.fixture(euid=1000)
         before = self.snapshot(system)
@@ -96,13 +212,13 @@ class CLITests(unittest.TestCase):
 
     def test_repeat_install_skips_and_remove(self):
         system = self.fixture()
-        self.assertEqual(self.call(system, 'install', 'input')[0], 0)
+        self.assertEqual(self.call(system, 'install', 'input', '--yes')[0], 0)
         before = self.snapshot(system)
-        result, output = self.call(system, 'install', 'input')
+        result, output = self.call(system, 'install', 'input', '--yes')
         self.assertEqual(result, 0)
         self.assertIn('Changed: none', output)
         self.assertEqual(self.snapshot(system), before)
-        self.assertEqual(self.call(system, 'remove', 'input')[0], 0)
+        self.assertEqual(self.call(system, 'remove', 'input', '--yes')[0], 0)
         self.assertFalse(system.exists('/etc/libinput/local-overrides.quirks'))
 
     def test_only_skip_unknown_and_usage(self):
@@ -127,9 +243,12 @@ class CLITests(unittest.TestCase):
 
     def test_non_parrot_requires_confirmation(self):
         system = self.fixture(distro_id='debian', distro_codename='trixie')
-        result, output = self.call(system, 'install', 'input')
+        output = io.StringIO()
+        inp = io.StringIO('n\n')
+        with patch.object(inp, 'isatty', return_value=True):
+            result = main(['install', 'input'], system=system, stdin=inp, stdout=output)
         self.assertEqual(result, 0)
-        self.assertIn('No changes made', output)
+        self.assertIn('No changes made', output.getvalue())
         self.assertFalse(system.exists(System.MANIFEST))
         self.assertEqual(self.call(system, 'install', 'input', '--yes')[0], 0)
         self.assertTrue(system.exists(System.MANIFEST))
@@ -179,7 +298,7 @@ class CLITests(unittest.TestCase):
     def test_restore_delegation(self):
         system = self.fixture()
         with patch('mbp2017.cli.all_fixes', return_value=[]):
-            result, output = self.call(system, 'restore-t1', '--online')
+            result, output = self.call(system, 'restore-t1', '--yes', '--online')
         self.assertEqual(result, 1)
         self.assertIn('unavailable', output)
         received = []
@@ -192,8 +311,8 @@ class CLITests(unittest.TestCase):
                 return ['Restore complete.']
 
         with patch('mbp2017.cli.all_fixes', return_value=[Backup()]):
-            self.assertEqual(self.call(system, 'restore-t1', '--online')[0], 0)
-            self.assertEqual(self.call(system, 'restore-t1', '--from', '/backup')[0], 0)
+            self.assertEqual(self.call(system, 'restore-t1', '--yes', '--online')[0], 0)
+            self.assertEqual(self.call(system, 'restore-t1', '--yes', '--from', '/backup')[0], 0)
         self.assertEqual(received, ['online', '/backup'])
 
     def test_hidden_root_constructs_system(self):
