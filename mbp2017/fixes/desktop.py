@@ -42,7 +42,7 @@ class DesktopFix(FileFix):
             raise FixError(status.detail)
         if status.state == State.NOT_NEEDED:
             return []
-        ctx.ui.info("Install the desktop provider so Touch Bar controls work with your desktop.")
+        ctx.ui.info("Connect the Touch Bar and Touch ID to your desktop and its lock screen.")
         return super().install(ctx)
 
     def after_install(self, ctx: Context) -> list[str]:

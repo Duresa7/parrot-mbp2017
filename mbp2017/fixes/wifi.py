@@ -54,7 +54,7 @@ class WifiFix(FileFix):
         # FileFix runs its hook only for content changes; package-only repairs need it too.
         files_current = all(system.file_is_current(item.path, system.data_text(item.data_name))
                             for item in self.files)
-        ctx.ui.info("Set up brcmfmac and connection retries to keep Wi-Fi connected.")
+        ctx.ui.info("Set up brcmfmac, connection retries and the sleep script to keep Wi-Fi working.")
         notes = super().install(ctx)
         if packages_changed and files_current:
             notes = self.after_install(ctx)
