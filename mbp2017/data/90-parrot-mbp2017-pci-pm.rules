@@ -1,0 +1,4 @@
+# Installed by parrot-mbp2017 (sleep).
+# Keep PCI devices out of D3cold and PCIe bridges awake so s2idle can resume.
+ACTION=="add|bind", SUBSYSTEM=="pci", ATTR{d3cold_allowed}="0"
+ACTION=="add|bind", SUBSYSTEM=="pci", DRIVER=="pcieport", ATTR{power/control}="on"
