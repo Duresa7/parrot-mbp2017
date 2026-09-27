@@ -203,9 +203,8 @@ for example `# Installed by parrot-mbp2017 (wifi).`
     ```
 
 - After writing: `udevadm control --reload`. Takes full effect after a reboot.
-- Known issues to print: t1bridge says the T1 does not survive sleep yet, so the
-  Touch Bar or Touch ID may need a reboot after waking; Thunderbolt logs errors
-  on resume.
+- Notes to print: with a T1, the t1-wake fix brings the Touch Bar and Touch ID
+  back after waking; Thunderbolt logs errors on resume.
 
 ### audio: internal speakers
 
@@ -323,6 +322,26 @@ for example `# Installed by parrot-mbp2017 (wifi).`
   distribution's `libfprint-2-2`, `fprintd`, `libpam-fprintd` with
   `--allow-downgrades`, remove the `-dev`/gir packages if they are the t1bridge
   builds, delete the usbmuxd override. Keep `/var/lib/t1bridge`.
+
+### t1-wake: Touch Bar and Touch ID after sleep
+
+- Default: on. Gate: T1 present. `blocked` until the t1bridge fix is done (or is
+  selected in the same run).
+- Why: `appletbdrm` parks the Touch Bar panel before suspend (HID feature
+  report 3 on T1 interface 6, byte 1 set to `1`) and never unparks it, so the
+  panel stays dark while touch still works. `t1bridge-keybag.service` exits
+  when sleep breaks its T1 link, and its restart backoff grows with every
+  sleep, so the lock screen's first fingerprint check after waking fails.
+- Files:
+  - `/usr/lib/systemd/system-sleep/parrot-mbp2017-t1-wake` (mode 0755), from
+    `mbp2017/data/parrot-mbp2017-t1-wake`, Python standard library only. On
+    `post` only: for each hidraw node on a `05ac:8600` interface numbered `06`,
+    read feature report 3 and, if it is 15 bytes with byte 1 equal to `1`,
+    write it back with byte 1 set to `2`. Then, if `t1bridge-keybag.service`
+    is loaded and `failed` or in `auto-restart`, `systemctl restart` it with a
+    20-second limit. Errors are logged and never fail the hook.
+- Limits: only tested after s2idle; upstream reports the panel stays dark
+  after S3 even when unparked (t1bridge#18).
 
 ### desktop: Touch Bar volume and media keys, brightness popups
 

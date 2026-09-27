@@ -136,6 +136,8 @@ slowest step — a few minutes with Docker installed, longer without it.
 - **t1bridge** — installs the drivers and services that let Linux talk to
   the T1 chip at all: the Touch Bar, Touch ID, camera and ambient light
   sensor all depend on this.
+- **t1-wake** — turns the Touch Bar back on and gets Touch ID ready as soon as
+  the Mac wakes from sleep. Needs t1bridge first.
 - **desktop** — connects the Touch Bar's volume, mute and media buttons, and
   brightness popups, to your desktop. Needs t1bridge first.
 - **fingerprint-login** — lets an enrolled fingerprint authenticate `sudo`
@@ -205,9 +207,10 @@ their distribution version. Two things are deliberately kept:
   Wi-Fi retrying forever rather than giving up — let it reconnect. Do not
   lock the connection to 2.4 GHz; that was tried and made things worse (see
   [docs/fixes.md](docs/fixes.md#wifi-stable-wi-fi-on-the-broadcom-bcm43602)).
-- **Touch Bar or Touch ID stop responding after sleep.** Known upstream
-  limit: t1bridge doesn't yet keep the T1 connected through a sleep cycle.
-  Reboot to bring them back.
+- **Touch Bar blank after waking from sleep.** Check that `t1-wake` shows
+  `done` in `sudo ./parrot-mbp2017 status`. It is tested with the light sleep
+  the `sleep` fix sets on 15-inch models; after deep sleep, upstream reports
+  the panel stays dark until a reboot.
 - **Camera isn't listed in some apps.** It only outputs H.264, which not
   every application supports yet.
 
@@ -220,8 +223,9 @@ their distribution version. Two things are deliberately kept:
 - Other owners report that s2idle sleep draws about 7-13 W, far more than
   macOS's deep sleep, and that opening the lid alone does not wake the Mac
   (a key press does). Neither has been checked on the tested Mac yet.
-- Sleep has been tested once with a timed wake, before t1bridge was
-  installed. Longer sleeps and sleep with t1bridge are untested.
+- Sleep with t1bridge has been tested with a 46-second timed wake and idle
+  sleeps of up to two hours. Waking by opening the lid hasn't been checked
+  on its own.
 - The T1 backup-restore path (`restore-t1 --from DIR`) hasn't been exercised
   on real hardware yet; the online path (`--online`) has.
 

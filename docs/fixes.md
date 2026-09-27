@@ -143,9 +143,9 @@ up if left alone, so it needs its own wakeup disabled.
 **Undo:** `remove sleep` deletes whichever of the three files it installed
 and reloads udev rules the same way.
 
-**Known limits, printed after installing:** t1bridge does not yet keep the T1
-connected through a sleep cycle, so the Touch Bar or Touch ID may need a
-reboot after waking up; and Thunderbolt logs (harmless) errors on resume. See
+**Printed after installing:** the [t1-wake](#t1-wake-touch-bar-and-touch-id-after-sleep)
+fix is what brings the Touch Bar and Touch ID back after waking, and
+Thunderbolt logs (harmless) errors on resume. See
 [hardware.md](hardware.md#known-hardware-limitations) for the s2idle power
 draw and lid-wake behavior this sleep mode brings with it.
 
@@ -153,11 +153,11 @@ draw and lid-wake behavior this sleep mode brings with it.
 amdgpu failed with `SMU load firmware failed` and a hung GPU reset. With
 `mem_sleep_default=s2idle` on the kernel command line and the two PCI rules,
 one timed test (`rtcwake -m freeze -s 30`) suspended and resumed cleanly with
-no amdgpu errors, and Wi-Fi reconnected. That test ran before t1bridge was
-installed. Waking by opening the lid, longer sleeps, and sleep with t1bridge
-installed have not been tested. This tool sets s2idle through systemd's
-`MemorySleepMode` instead of the kernel command line; both select the same
-mode.
+no amdgpu errors, and Wi-Fi reconnected. Later, with t1bridge installed, a
+46-second timed sleep and idle sleeps of up to two hours also resumed with
+working graphics. Waking by opening the lid has not been checked on its
+own. This tool sets s2idle through systemd's `MemorySleepMode` instead of
+the kernel command line; both select the same mode.
 
 ## audio: internal speakers
 
@@ -291,6 +291,50 @@ the pinned version, `sudo t1bridge status` reported every row `ready`, the
 Touch Bar displayed and responded to touch, an enrolled fingerprint worked
 with `fprintd-verify`, the FaceTime camera captured a frame with `ffmpeg`
 (it offers H.264 only), and the ambient light sensor gave readings.
+
+## t1-wake: Touch Bar and Touch ID after sleep
+
+**The problem:** after the Mac wakes from sleep, the Touch Bar stays blank
+even though touching it still works, and the lock screen's fingerprint check
+fails.
+
+**The cause:** two separate things. t1bridge's display driver
+(`appletbdrm`) parks the Touch Bar panel before sleep, by setting byte 1 of
+HID feature report 3 on the T1's interface 6 to `1`, and nothing sets it
+back to `2` after waking, so the panel stays off while touch input carries
+on. And Touch ID's key service (`t1bridge-keybag.service`) loses its link to
+the T1 during sleep and exits; systemd restarts it only after a delay that
+grows with every sleep, up to a minute, and the lock screen asks for a
+finger before it's back.
+
+**What changes:**
+
+- Installs `/usr/lib/systemd/system-sleep/parrot-mbp2017-t1-wake` (mode
+  `0755`), a Python script systemd runs straight after waking, while your
+  desktop is still paused. If the panel is parked, it switches it back on.
+  If `t1bridge-keybag.service` has failed or is waiting to restart, it
+  restarts it right away (waiting at most 20 seconds). It does nothing
+  before sleep.
+
+**Depends on:** `t1bridge`.
+
+**Undo:** `remove t1-wake` deletes the script.
+
+**Limits:** only light (s2idle) sleep, which the [sleep](#sleep-working-suspend-on-the-15-inch-models)
+fix sets on 15-inch models, has been tested. Upstream reports that after
+deep (S3) sleep the panel stays dark even when switched back on
+([t1bridge#18](https://github.com/standardagents/t1bridge/issues/18)).
+
+**How it was verified:** on the tested Mac, the panel reported itself parked
+after waking and lit up again, as the owner confirmed, once switched back on.
+With the script installed, the journal showed the panel switched back on and
+the key service restarted within about a second of every wake, across a
+failed sleep attempt, a 46-second timed sleep and idle sleeps of up to two
+hours. The Touch Bar was lit after them without restarting anything else.
+After the tool itself installed the fix, a 40-second timed sleep woke on the
+lock screen with the panel back on and the key service restarted before the
+desktop resumed; the owner unlocked with a fingerprint and the Touch Bar
+buttons responded.
 
 ## desktop: Touch Bar volume and media keys, brightness popups
 

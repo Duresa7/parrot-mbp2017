@@ -99,7 +99,9 @@ and don't spend time chasing them:
   drain while the lid is closed. Not yet measured on the tested Mac.
 - **The lid may not wake the Mac from s2idle; a key press does**, as other
   owners report. Not yet checked on the tested Mac.
-- **The Touch Bar and Touch ID may need a reboot after sleep.** t1bridge does
-  not yet keep the T1 connection alive through a sleep cycle on these Macs.
-  See [fixes.md](fixes.md#sleep-working-suspend-on-the-15-inch-models) and
-  [fixes.md](fixes.md#t1bridge-touch-bar-touch-id-camera-and-ambient-light-sensor).
+- **The Touch Bar stays dark after deep (S3) sleep**, upstream reports
+  ([t1bridge#18](https://github.com/standardagents/t1bridge/issues/18)). The
+  `t1-wake` fix brings the Touch Bar and Touch ID back after the light
+  (s2idle) sleep the `sleep` fix sets on 15-inch models. 13-inch models keep
+  their default sleep mode and are untested. See
+  [fixes.md](fixes.md#t1-wake-touch-bar-and-touch-id-after-sleep).
