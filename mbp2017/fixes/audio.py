@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .base import Context, Fix, FixError, Health, State, Status
 from ..hardware import Hardware
+from .. import dkms
 
 REPO_URL = "https://github.com/davidjo/snd_hda_macbookpro.git"
 COMMIT = "89b22ff90b86468b186706861dd18663562defa7"
@@ -12,20 +13,6 @@ DKMS_NAME = "snd_hda_macbookpro"
 DKMS_VERSION = "0.1"
 LOG_PATH = "/var/log/parrot-mbp2017-audio.log"
 PACKAGES = ("build-essential", "dkms", "git", "patch", "wget")
-
-
-def _dkms_entries(ctx: Context) -> list[dict[str, str]]:
-    result = ctx.system.run(["dkms", "status", DKMS_NAME], check=False)
-    entries = []
-    for line in result.stdout.splitlines():
-        head, sep, status = line.partition(":")
-        if not sep:
-            continue
-        fields = [field.strip() for field in head.split(",")]
-        if len(fields) < 2 or fields[0].split("/")[0] != DKMS_NAME:
-            continue
-        entries.append({"kernel": fields[1], "status": status.strip()})
-    return entries
 
 
 class AudioFix(Fix):
@@ -45,7 +32,7 @@ class AudioFix(Fix):
         reason = self.gate(ctx.hw)
         if reason:
             return Status(State.NOT_NEEDED, reason)
-        entries = _dkms_entries(ctx)
+        entries = dkms.entries(ctx.system, DKMS_NAME)
         if any(entry["kernel"] == ctx.hw.kernel and "installed" in entry["status"] for entry in entries):
             return Status(State.DONE)
         installed_elsewhere = [entry["kernel"] for entry in entries if "installed" in entry["status"]]
@@ -108,7 +95,7 @@ class AudioFix(Fix):
     def health(self, ctx: Context) -> list[Health]:
         if self.gate(ctx.hw):
             return []
-        entries = {entry["kernel"]: entry["status"] for entry in _dkms_entries(ctx)}
+        entries = {entry["kernel"]: entry["status"] for entry in dkms.entries(ctx.system, DKMS_NAME)}
         checks = []
         for kernel, has_headers in ctx.hw.headers.items():
             if has_headers and "installed" not in entries.get(kernel, ""):

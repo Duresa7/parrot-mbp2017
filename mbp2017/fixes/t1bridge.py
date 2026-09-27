@@ -6,6 +6,7 @@ import re
 
 from .base import Context, Fix, FixError, Health, State, Status
 from ..hardware import Hardware
+from .. import dkms
 
 
 VERSION = "0.1.12-1~parrot1"
@@ -158,10 +159,10 @@ class T1BridgeFix(Fix):
             return
         ctx.ui.info("Removing the old Touch Bar driver because it forces the T1 into a "
                     "mode that conflicts with t1bridge. Its settings will be saved in "
-                    "/var/lib/parrot-mbp2017/legacy/.")
+                    f"{system.STATE_DIR}/legacy/.")
         # Keep the original directory names: two settings files have the same basename.
         for path in files:
-            backup = "/var/lib/parrot-mbp2017/legacy" + path
+            backup = system.STATE_DIR + "/legacy" + path
             if not system.exists(backup):
                 system.copy_file(path, backup, 0o644)
             system.note(self.id, "legacy_backup:" + path, backup)
@@ -261,10 +262,7 @@ class T1BridgeFix(Fix):
         checks = [Health("warn", message) for message in self._hardware_warnings(ctx)]
         if "t1bridge" not in ctx.system.package_versions(["t1bridge"]):
             return checks
-        result = ctx.system.run(["dkms", "status", "t1bridge-dkms"], check=False)
-        installed = set(re.findall(
-            r"^t1bridge-dkms/[^,]+,\s*([^,]+),[^:\n]+:\s*installed(?:\s|$)",
-            result.stdout, re.MULTILINE)) if result.ok else set()
+        installed = dkms.installed_kernels(ctx.system, "t1bridge-dkms")
         for kernel in ctx.hw.kernels:
             if ctx.hw.headers.get(kernel) and kernel not in installed:
                 checks.append(Health("warn", f"t1bridge-dkms is not installed for kernel {kernel}. "
@@ -278,6 +276,8 @@ class T1BridgeFix(Fix):
             if not result.ok:
                 checks.append(Health("warn", "Could not complete t1bridge status; run sudo t1bridge "
                                      "status to check the T1 services."))
+        else:
+            checks.append(Health("warn", "Run status with sudo to check the t1bridge services."))
         holds = self._missing_holds(ctx)
         if holds:
             checks.append(Health("warn", "Missing package holds: " + ", ".join(holds)

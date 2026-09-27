@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from helpers import FakeRunner, KERNEL, make_mac
-from mbp2017.fixes.base import Context, FixError, Options, State
+from mbp2017.fixes.base import Context, FixError, Health, Options, State
 from mbp2017.fixes.t1bridge import (BUILD_LOG, CACHE, HOLDS, LEGACY_FILES, OVERRIDE,
                                   PACKAGES, RULE_HEADER, SHA_NOTE, STOCK_RULE, VERSION,
                                   T1BridgeFix)
@@ -130,7 +130,7 @@ class T1BridgeTests(unittest.TestCase):
         command = ["dkms", "remove", "-m", "apple-ib-drv", "-v", "0.1", "--all"]
         self.assertEqual(self.runner.calls.count(command), 1)
         for index, path in enumerate(LEGACY_FILES):
-            self.assertEqual(self.system.read_text("/var/lib/parrot-mbp2017/legacy" + path),
+            self.assertEqual(self.system.read_text(System.STATE_DIR + "/legacy" + path),
                              f"legacy {index}")
             self.assertIn(["rm", "-rf", "--", str(self.system.path(path))], self.runner.calls)
             self.assertTrue(self.system.notes(self.fix.id)["legacy_removed:" + path])
@@ -322,7 +322,8 @@ class T1BridgeTests(unittest.TestCase):
         self.assertIn("restore-t1", " ".join(notes))
         self.ready()
         self.system.euid = 1000
-        self.fix.health(self.ctx)
+        checks = self.fix.health(self.ctx)
+        self.assertIn(Health("warn", "Run status with sudo to check the t1bridge services."), checks)
         self.assertNotIn(["t1bridge", "status"], self.runner.calls)
 
     def test_primary_group_and_no_nonroot_invoker(self):
