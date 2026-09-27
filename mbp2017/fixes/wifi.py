@@ -7,12 +7,15 @@ from ..hardware import Hardware
 class WifiFix(FileFix):
     id = "wifi"
     title = "Stable Wi-Fi on the Broadcom BCM43602"
-    summary = "Prevent driver conflicts, turn off Wi-Fi power saving and keep retrying connections."
+    summary = "Stop driver conflicts and dropouts, and reload the driver around sleep."
     why = ("Other Broadcom drivers can fight brcmfmac for this chip. Power saving can "
-           "drop connections, and unlimited retries let Wi-Fi recover after a short outage.")
+           "drop connections, and unlimited retries let Wi-Fi recover after a short outage. "
+           "The chip's firmware can also fail to sleep or wake in place, which stops the Mac "
+           "sleeping or leaves Wi-Fi dead, so the driver is unloaded before sleep and reloaded after.")
     files = (
         ManagedFile("/etc/modprobe.d/parrot-mbp2017-broadcom.conf", "parrot-mbp2017-broadcom.conf"),
         ManagedFile("/etc/NetworkManager/conf.d/parrot-mbp2017-wifi.conf", "parrot-mbp2017-wifi.conf"),
+        ManagedFile("/usr/lib/systemd/system-sleep/parrot-mbp2017-wifi", "parrot-mbp2017-wifi-sleep", mode=0o755),
     )
     firmware = "/lib/firmware/brcm/brcmfmac43602-pcie.bin"
 

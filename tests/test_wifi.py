@@ -47,6 +47,7 @@ class WifiFixTests(unittest.TestCase):
         self.assertEqual(fix.status(ctx).state, State.TODO)
         fix.install(ctx)
         self.assertEqual(fix.status(ctx).state, State.DONE)
+        self.assertEqual(ctx.system.path(fix.files[2].path).stat().st_mode & 0o777, 0o755)
         changes = [c for c in self.runner.calls if c[0] != "dpkg-query"]
         self.assertEqual(changes, [["update-initramfs", "-u"], ["nmcli", "general", "reload", "conf"]])
         self.runner.calls.clear()
@@ -55,6 +56,7 @@ class WifiFixTests(unittest.TestCase):
         fix.remove(ctx)
         self.assertEqual(original.read_text(), "# original\n")
         self.assertFalse(ctx.system.exists(fix.files[1].path))
+        self.assertFalse(ctx.system.exists(fix.files[2].path))
         self.assertEqual(fix.status(ctx).state, State.TODO)
         self.assertEqual([c for c in self.runner.calls if c[0] != "dpkg-query"], changes)
 
@@ -116,3 +118,28 @@ class WifiFixTests(unittest.TestCase):
         fix.remove(ctx)
         self.assertEqual(before, self.snapshot())
         self.assertFalse(self.runner.calls)
+
+
+class SleepHookTests(unittest.TestCase):
+    def test_hook_leaves_the_driver_alone_when_it_did_not_unload_it(self):
+        import os
+        import shutil
+        import subprocess
+
+        bash = shutil.which("bash")
+        if not bash:
+            self.skipTest("bash is unavailable")
+        if Path("/sys/module/brcmfmac").exists() or Path("/run/parrot-mbp2017-wifi-unloaded").exists():
+            self.skipTest("this machine uses brcmfmac")
+        repo = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(dir=repo) as tmp:
+            log = Path(tmp) / "calls"
+            stub = Path(tmp) / "modprobe"
+            stub.write_text(f'#!/bin/sh\necho "$*" >>"{log}"\n')
+            stub.chmod(0o755)
+            env = dict(os.environ, PATH=tmp + os.pathsep + os.environ.get("PATH", ""))
+            script = str(repo / "mbp2017/data/parrot-mbp2017-wifi-sleep")
+            for args in [["pre", "suspend"], ["post", "suspend"], []]:
+                result = subprocess.run([bash, script, *args], env=env, capture_output=True, timeout=5)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(log.exists())

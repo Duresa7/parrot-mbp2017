@@ -34,4 +34,5 @@ jobs:
             packaging/t1bridge/debian/t1bridge-dkms/postinst \
             packaging/t1bridge/debian/t1bridge-dkms/prerm \
             packaging/t1bridge/debian/t1bridge-dkms/postrm \
-            mbp2017/data/desktop-provider
+            mbp2017/data/desktop-provider \
+            mbp2017/data/parrot-mbp2017-wifi-sleep

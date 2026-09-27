@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Installed by parrot-mbp2017 (wifi).
+# systemd runs this just before sleep and just after waking. The BCM43602's
+# firmware sometimes cannot sleep or wake in place: the Mac then refuses to
+# sleep, or Wi-Fi stays dead until a reboot. Unloading brcmfmac before sleep
+# and loading it again after waking gives the chip the clean start it gets at
+# boot.
+
+set -euo pipefail
+
+readonly marker=/run/parrot-mbp2017-wifi-unloaded
+
+case "${1:-}" in
+pre)
+	[ -d /sys/module/brcmfmac ] || exit 0
+	# brcmfmac_wcc uses brcmfmac, so it goes first. A failure here must not
+	# stop the Mac sleeping; the driver then sleeps in place as before.
+	if modprobe -r brcmfmac_wcc brcmfmac; then
+		: >"$marker"
+	fi
+	;;
+post)
+	# Only reload a driver this script unloaded.
+	[ -e "$marker" ] || exit 0
+	rm -f "$marker"
+	modprobe brcmfmac
+	;;
+esac
