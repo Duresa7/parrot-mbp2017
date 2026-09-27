@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# Installed by parrot-mbp2017 (desktop).
+# Desktop provider v1 for Plasma: volume, media keys and brightness feedback.
+# Installed at /usr/local/lib/parrot-mbp2017/desktop-provider.
+# parrot-mbp2017 writes the systemd drop-in that enables this provider.
+# The upstream range check intentionally breaks if either condition fails.
+# shellcheck disable=SC2015
+
+set -u
+
+readonly AUDIO=1 MEDIA=2 NOTIFICATION=4 LEVEL_FEEDBACK=8
+readonly sink=@DEFAULT_AUDIO_SINK@
+
+call() {
+	busctl --user --timeout=300ms call "$@" >/dev/null 2>&1
+}
+
+prop() {
+	busctl --user --timeout=300ms get-property "$@" 2>/dev/null
+}
+
+# Prints "VOLUME MUTED" for the default sink, VOLUME as 0-100.
+audio_state() {
+	local out vol
+	out=$(wpctl get-volume "$sink" 2>/dev/null) || return 1
+	vol=${out#Volume: }
+	vol=${vol%% *}
+	[[ $vol =~ ^[0-9]+\.[0-9]{2}$ ]] || return 1
+	vol=$((10#${vol/./}))
+	((vol > 100)) && vol=100
+	[[ $out == *MUTED* ]] && echo "$vol 1" || echo "$vol 0"
+}
+
+show_volume() {
+	local vol muted
+	read -r vol muted < <(audio_state) || return 0
+	((muted)) && vol=0
+	call org.kde.plasmashell /org/kde/osdService org.kde.osdService volumeChanged i "$vol"
+	return 0
+}
+
+# Prints the bus name of the playing MPRIS player, else the first one found.
+mpris_player() {
+	local name first=
+	for name in $(busctl --user --timeout=300ms list --acquired --no-legend 2>/dev/null |
+		awk '$1 ~ /^org\.mpris\.MediaPlayer2\./ { print $1 }'); do
+		first=${first:-$name}
+		if prop "$name" /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player PlaybackStatus |
+			grep -q Playing; then
+			echo "$name"
+			return 0
+		fi
+	done
+	[ -n "$first" ] && echo "$first"
+}
+
+# Prints "CURRENT MAX" for the first readable brightness device given.
+level() {
+	local dev
+	for dev in "$@"; do
+		[ -r "$dev/brightness" ] && [ -r "$dev/max_brightness" ] || continue
+		echo "$(<"$dev/brightness") $(<"$dev/max_brightness")"
+		return 0
+	done
+	return 1
+}
+
+show_display_brightness() {
+	local cur max path kmax
+	read -r cur max < <(level /sys/class/backlight/*) && ((max > 0)) || return 1
+	for path in $(busctl --user --timeout=300ms tree --list org.kde.ScreenBrightness 2>/dev/null |
+		grep '^/org/kde/ScreenBrightness/.'); do
+		[ "$(prop org.kde.ScreenBrightness "$path" org.kde.ScreenBrightness.Display IsInternal)" = "b true" ] ||
+			continue
+		kmax=$(prop org.kde.ScreenBrightness "$path" org.kde.ScreenBrightness.Display MaxBrightness)
+		kmax=${kmax#i }
+		[[ $kmax =~ ^[0-9]+$ ]] && ((kmax > 0)) || break
+		# Flags 0: PowerDevil shows its indicator.
+		call org.kde.ScreenBrightness "$path" org.kde.ScreenBrightness.Display SetBrightness iu \
+			$(((cur * kmax + max / 2) / max)) 0 && return 0
+		break
+	done
+	# Older Plasma: popup only.
+	call org.kde.plasmashell /org/kde/osdService org.kde.osdService brightnessChanged i \
+		$(((cur * 100 + max / 2) / max))
+	return 0
+}
+
+show_keyboard_backlight() {
+	local cur max
+	read -r cur max < <(level /sys/class/leds/*::kbd_backlight) && ((max > 0)) || return 1
+	call org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement/Actions/KeyboardBrightnessControl \
+		org.kde.Solid.PowerManagement.Actions.KeyboardBrightnessControl setKeyboardBrightness i "$cur" ||
+		call org.kde.plasmashell /org/kde/osdService org.kde.osdService keyboardBrightnessChanged i \
+			$(((cur * 100 + max / 2) / max))
+	return 0
+}
+
+[ "${1:-}" = v1 ] || exit 2
+
+case "${2:-}" in
+status)
+	caps=$((NOTIFICATION | LEVEL_FEEDBACK))
+	if read -r vol muted < <(audio_state); then
+		caps=$((caps | AUDIO))
+	else
+		vol=- muted=-
+	fi
+	busctl --user --timeout=300ms list --acquired --no-legend 2>/dev/null |
+		grep -q '^org\.mpris\.MediaPlayer2\.' && caps=$((caps | MEDIA))
+	echo "T1BRIDGE-DESKTOP 1 $caps $vol $muted"
+	;;
+set-volume)
+	[[ ${3:-} =~ ^[0-9]{1,3}$ ]] && (($3 <= 100)) || exit 2
+	wpctl set-volume "$sink" "$3%" || exit 1
+	# Like Plasma's volume keys, changing the level unmutes.
+	wpctl set-mute "$sink" 0
+	show_volume
+	;;
+toggle-mute)
+	wpctl set-mute "$sink" toggle || exit 1
+	show_volume
+	;;
+media-previous | media-play-pause | media-next)
+	player=$(mpris_player) || exit 1
+	case $2 in
+	media-previous) method=Previous ;;
+	media-play-pause) method=PlayPause ;;
+	*) method=Next ;;
+	esac
+	call "$player" /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player "$method" || exit 1
+	;;
+show-display-brightness)
+	show_display_brightness || exit 1
+	;;
+show-keyboard-backlight)
+	show_keyboard_backlight || exit 1
+	;;
+notify-renderer-fallback)
+	notify-send --app-name=T1Bridge --icon=input-keyboard "Touch Bar" \
+		"The selected Touch Bar renderer is unavailable; using the built-in one." || exit 1
+	;;
+*)
+	exit 2
+	;;
+esac
