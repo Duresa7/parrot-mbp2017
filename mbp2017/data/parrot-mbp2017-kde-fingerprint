@@ -1,0 +1,30 @@
+#%PAM-1.0
+# Installed by parrot-mbp2017 (desktop).
+# Plasma's lock screen fingerprint service, based on the packaged
+# /usr/lib/pam.d/kde-fingerprint, with two changes. Password unlock is not
+# affected.
+#
+# The packaged file runs pam_kwallet5 after a matched finger. With no password
+# to unlock the wallet, it asks for one, and the lock screen never answers the
+# fingerprint service, so the unlock hangs. It is left out here.
+#
+# Plasma 6.3 stops listening for a finger for the rest of a lock once a check
+# reports "unavailable", which pam_fprintd does when a check times out (the T1
+# ends each one after 30 seconds) or the reader errors. Report a plain failure
+# instead, so a failed password attempt starts a new check.
+auth    requisite       pam_nologin.so
+auth	required	pam_succeed_if.so user != root quiet_success
+auth    [success=1 default=ignore]      pam_fprintd.so
+auth    requisite       pam_deny.so
+auth    required        pam_permit.so
+@include common-account
+session [success=ok ignore=ignore module_unknown=ignore default=bad]        pam_selinux.so close
+session required        pam_loginuid.so
+session [success=ok ignore=ignore module_unknown=ignore default=bad]        pam_selinux.so open
+session optional        pam_keyinit.so force revoke
+session required        pam_limits.so
+session required        pam_env.so readenv=1
+session required        pam_env.so readenv=1 envfile=/etc/default/locale
+@include common-session
+session optional        pam_kwallet5.so auto_start
+password required       pam_fprintd.so

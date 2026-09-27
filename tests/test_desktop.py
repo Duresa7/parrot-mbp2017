@@ -59,6 +59,7 @@ class DesktopFixTests(unittest.TestCase):
         self.assertIn("Log out", " ".join(notes))
         self.assertEqual(fix.status(ctx).state, State.DONE)
         self.assertEqual(ctx.system.path(fix.files[0].path).stat().st_mode & 0o777, 0o755)
+        self.assertIn("pam_fprintd.so", ctx.system.read_text(fix.files[2].path))
         commands = [["systemctl", "--user", "-M", "alice@", "daemon-reload"],
                     ["systemctl", "--user", "-M", "alice@", "try-restart", "t1-touchbar.service"]]
         self.assertEqual(self.runner.calls, commands)
@@ -68,7 +69,27 @@ class DesktopFixTests(unittest.TestCase):
         self.assertEqual(self.runner.calls, commands * 2)
         self.assertEqual(original.read_text(), "# original\n")
         self.assertFalse(ctx.system.exists(fix.files[0].path))
+        self.assertFalse(ctx.system.exists(fix.files[2].path))
         self.assertEqual(fix.status(ctx).state, State.TODO)
+
+    def test_lock_screen_service_needs_plasma(self):
+        ctx = self.context(plasma=False)
+        ctx.options.selected.add("t1bridge")
+        fix = DesktopFix()
+        fix.install(ctx)
+        self.assertEqual(fix.status(ctx).state, State.DONE)
+        self.assertTrue(ctx.system.exists(fix.files[1].path))
+        self.assertFalse(ctx.system.exists(fix.files[2].path))
+
+    def test_lock_screen_service_never_prompts_after_a_match(self):
+        ctx = self.context()
+        auth = [line.split() for line in ctx.system.data_text("parrot-mbp2017-kde-fingerprint").splitlines()
+                if line.startswith("auth")]
+        modules = [next(word for word in line if word.endswith(".so")) for line in auth]
+        # A match skips pam_deny and ends on pam_permit; nothing may prompt for a password.
+        self.assertEqual(modules[-3:], ["pam_fprintd.so", "pam_deny.so", "pam_permit.so"])
+        self.assertEqual(" ".join(auth[-3][1:3]), "[success=1 default=ignore]")
+        self.assertNotIn("pam_kwallet5.so", modules)
 
     def test_dry_run_and_missing_user(self):
         ctx = self.context()

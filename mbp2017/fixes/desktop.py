@@ -7,16 +7,19 @@ from ..hardware import Hardware
 
 class DesktopFix(FileFix):
     id = "desktop"
-    title = "Touch Bar volume and media keys, brightness popups"
-    summary = "Connect Touch Bar controls to desktop audio, media and brightness popups."
+    title = "Touch Bar controls and lock screen Touch ID in Plasma"
+    summary = "Connect Touch Bar controls to Plasma and let Touch ID unlock the lock screen."
     why = ("t1bridge needs a desktop provider to show volume and media buttons. "
-           "The provider also keeps Plasma's brightness slider and popups in sync.")
+           "The provider also keeps Plasma's brightness slider and popups in sync. "
+           "Plasma's packaged lock screen fingerprint service hangs after a matched finger and "
+           "stops listening after one timeout; a corrected copy fixes both.")
     requires = ("t1bridge",)
     after = "relogin"
     files = (
         ManagedFile("/usr/local/lib/parrot-mbp2017/desktop-provider", "desktop-provider", mode=0o755),
         ManagedFile("/etc/systemd/user/t1-touchbar.service.d/parrot-mbp2017-desktop-provider.conf",
                     "parrot-mbp2017-desktop-provider.conf"),
+        ManagedFile("/etc/pam.d/kde-fingerprint", "parrot-mbp2017-kde-fingerprint", when=lambda hw: hw.plasma),
     )
 
     def gate(self, hw: Hardware) -> str | None:
