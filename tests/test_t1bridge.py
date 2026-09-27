@@ -143,6 +143,39 @@ class T1BridgeTests(unittest.TestCase):
         self.fix.install(self.ctx)
         self.assertNotIn(["docker", "info"], self.runner.calls)
 
+    def test_pinned_packages_only_repair_missing_integration(self):
+        self.installed()
+        self.runner.scripts[("apt-mark", "showhold")] = Result(0, HOLDS[0])
+        self.write(STOCK_RULE, STOCK)
+        with patch.object(self.fix, '_resolve_packages') as resolve:
+            notes = self.fix.install(self.ctx)
+        resolve.assert_not_called()
+        self.assertFalse(any(call[0] in ('apt-get', 'docker', 'dkms', 'rm')
+                             or call[0].endswith('build-debs.sh') for call in self.runner.calls))
+        self.assertIn(['apt-mark', 'hold', *HOLDS[1:]], self.runner.calls)
+        self.assertIn(['usermod', '-aG', 't1bridge', 'alice'], self.runner.calls)
+        self.assertEqual(self.system.read_text(OVERRIDE), RULE_HEADER + STOCK.replace('|5ac/8600/*', ''))
+        self.assertIn('fprintd-enroll', ' '.join(notes))
+
+    def test_pinned_packages_keep_existing_holds_and_group(self):
+        self.ready()
+        self.write(STOCK_RULE, STOCK)
+        self.fix.install(self.ctx)
+        self.assertFalse(any(call[:2] in (['apt-get', 'install'], ['apt-mark', 'hold'])
+                             or call[0] == 'usermod' for call in self.runner.calls))
+        self.assertTrue(self.system.exists(OVERRIDE))
+
+    def test_wrong_or_missing_pinned_package_still_installs(self):
+        self.debs()
+        for versions in ({'t1bridge': VERSION},
+                         {'t1bridge': VERSION, 't1bridge-dkms': 'old'},
+                         {'t1bridge': 'old', 't1bridge-dkms': VERSION}):
+            with self.subTest(versions=versions):
+                self.installed(versions)
+                self.runner.calls.clear()
+                self.fix.install(self.ctx)
+                self.assertTrue(any(call[:2] == ['apt-get', 'install'] for call in self.runner.calls))
+
     def build_runner(self, docker_code=0, build_code=0, produce=True):
         self.ctx.options.debs_dir = None
         self.runner.scripts[("docker", "info")] = Result(docker_code)

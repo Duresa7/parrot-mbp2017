@@ -196,16 +196,20 @@ class T1BridgeFix(Fix):
             ctx.ui.warn(message)
         if self.status(ctx).state == State.DONE:
             return warnings
-        paths = self._resolve_packages(ctx)
-        if paths is None:  # A dry-run build cannot produce packages to validate.
-            return warnings
-        self._remove_legacy(ctx)
-        ctx.ui.info("Installing the five matching T1 packages, then holding the fingerprint "
-                    "packages so updates cannot split the matched set.")
-        ctx.system.run(["apt-get", "install", "-y", "--allow-downgrades", *paths],
-                       env={"DEBIAN_FRONTEND": "noninteractive"}, mutating=True)
-        ctx.system.run(["apt-mark", "hold", *HOLDS], mutating=True)
-        ctx.system.note(self.id, "holds", list(HOLDS))
+        versions = ctx.system.package_versions(["t1bridge", "t1bridge-dkms"])
+        if any(versions.get(name) != VERSION for name in ("t1bridge", "t1bridge-dkms")):
+            paths = self._resolve_packages(ctx)
+            if paths is None:  # A dry-run build cannot produce packages to validate.
+                return warnings
+            self._remove_legacy(ctx)
+            ctx.ui.info("Installing the five matching T1 packages so the drivers and services work together.")
+            ctx.system.run(["apt-get", "install", "-y", "--allow-downgrades", *paths],
+                           env={"DEBIAN_FRONTEND": "noninteractive"}, mutating=True)
+        holds = self._missing_holds(ctx)
+        if holds:
+            ctx.ui.info("Holding the fingerprint packages so updates cannot split the matched set.")
+            ctx.system.run(["apt-mark", "hold", *holds], mutating=True)
+            ctx.system.note(self.id, "holds", list(HOLDS))
         user = ctx.system.invoking_user()
         if user and user.uid != 0 and self._group_warning(ctx):
             ctx.ui.info(f"Adding {user.name} to the t1bridge group so they can use Touch ID.")
