@@ -61,13 +61,18 @@ are written, but treat that path as unproven until confirmed.
 ## wifi: stable Wi-Fi on the Broadcom BCM43602
 
 **The problem:** Wi-Fi drops out, especially on 5 GHz networks, and sometimes
-does not reconnect on its own.
+does not reconnect on its own. After some sleeps the Mac also refuses to
+sleep at all, or Wi-Fi stays dead after waking.
 
 **The cause:** several possible drivers can claim this chip (`wl` from
 broadcom-sta, `b43`, `bcma`, and others) and fight the in-tree `brcmfmac`
 driver for it; `brcmfmac`'s power saving can drop the link; and
 NetworkManager gives up retrying a connection after 4 failed attempts,
-leaving the laptop offline until you intervene.
+leaving the laptop offline until you intervene. The chip's firmware also
+sometimes cannot sleep or wake in place
+([kernel bug 196019](https://bugzilla.kernel.org/show_bug.cgi?id=196019)):
+`brcmfmac` then times out entering its sleep state, which cancels the whole
+suspend, or the chip comes back unresponsive.
 
 **What changes:**
 
@@ -80,11 +85,15 @@ leaving the laptop offline until you intervene.
   `/lib/firmware/brcm/brcmfmac43602-pcie.bin` is missing.
 - Removes the `broadcom-sta-dkms` package if it's installed, after asking for
   confirmation, since it's the main source of driver conflicts.
+- `/usr/lib/systemd/system-sleep/parrot-mbp2017-wifi` (mode `0755`) unloads
+  `brcmfmac` before sleep and loads it again after waking, the same clean
+  start the chip gets at boot. It only reloads a driver it unloaded itself;
+  if unloading fails, the Mac sleeps with the driver loaded, as before.
 - Runs `update-initramfs -u` and `nmcli general reload conf` afterwards so the
   running system picks up the change; a reboot is only needed if `wl` is
   currently loaded.
 
-**Undo:** `remove wifi` deletes both files, then re-runs the same
+**Undo:** `remove wifi` deletes its three files, then re-runs the same
 initramfs update and NetworkManager reload.
 
 **Note:** the tool deliberately does not offer to lock Wi-Fi to the 2.4 GHz
@@ -101,6 +110,12 @@ loaded and `iw` reported power saving off. With retries set to forever the
 laptop reconnected by itself after drops caused by a router that steers it
 to a 5 GHz DFS channel. Those settings were made on the single connection;
 this tool applies the same values as NetworkManager defaults instead.
+
+For the sleep script: after one resume, the tested Mac failed every later
+suspend with `brcmf_pcie_pm_enter_D3: Timeout on response for entering D3
+substate` and woke straight back up. With the script in place, a 46-second
+timed sleep and a two-hour idle sleep both completed, and Wi-Fi reconnected
+about 5 seconds after each wake.
 
 ## sleep: working suspend on the 15-inch models
 

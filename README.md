@@ -14,7 +14,7 @@ fixes it needs, and applies only those — each one reversible.
 
 | Feature | State after setup |
 | --- | --- |
-| Wi-Fi | Stays connected; recovers on its own after a short outage |
+| Wi-Fi | Stays connected; recovers on its own after a short outage and after sleep |
 | Sleep (15-inch models) | Suspend and resume work using the lighter s2idle mode (see [Known issues](#known-issues)) |
 | Speakers | Internal speakers work |
 | Touch Bar | Displays and responds to touch |
@@ -75,7 +75,7 @@ Touch Bar (T1)  running, USB configuration 2
 ...
 #  Fix                Status       Summary
 1  t1-backup          not set up   Save a copy of the T1's firmware and Touch ID data from the EFI partition.
-2  wifi               not set up   Prevent driver conflicts, turn off Wi-Fi power saving and keep retrying connections.
+2  wifi               not set up   Stop driver conflicts and dropouts, and reload the driver around sleep.
 3  sleep              partly done  Use lighter sleep for AMD graphics and stop the T1 waking the Mac immediately.
 ...
 1. [x] t1-backup: Back up the T1 firmware and Touch ID data
@@ -123,8 +123,9 @@ slowest step — a few minutes with Docker installed, longer without it.
   partition, so a reinstall doesn't strand your Touch Bar and Touch ID. On by
   default when your Mac has a T1 and that data is present.
 - **wifi** — keeps the Broadcom Wi-Fi chip on its correct driver, turns off
-  power saving, and makes it retry forever instead of giving up after a few
-  failed attempts.
+  power saving, makes it retry forever instead of giving up after a few
+  failed attempts, and restarts its driver around sleep so the chip can't
+  stop the Mac sleeping or come back dead.
 - **sleep** — switches 15-inch models to a lighter sleep mode so the screen
   reliably returns after the lid closes, and stops the T1 waking the Mac back
   up immediately.

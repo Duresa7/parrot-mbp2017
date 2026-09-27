@@ -148,7 +148,9 @@ for example `# Installed by parrot-mbp2017 (wifi).`
 - Why: other Broadcom drivers (`wl` from broadcom-sta, `b43`, `bcma` and
   others) fight `brcmfmac` for the chip, brcmfmac power saving causes drops,
   and NetworkManager stops retrying after 4 failed attempts, leaving the
-  laptop offline after a short outage.
+  laptop offline after a short outage. The firmware also sometimes cannot
+  sleep or wake in place: `brcmf_pcie_pm_enter_D3` times out, which cancels
+  every later suspend, or the chip comes back unresponsive.
 - Files:
   - `/etc/modprobe.d/parrot-mbp2017-broadcom.conf`: `blacklist` lines for
     `wl b43 b43legacy b44 bcma brcm80211 brcmsmac ssb`.
@@ -165,11 +167,16 @@ for example `# Installed by parrot-mbp2017 (wifi).`
 
     `autoconnect-retries-default=0` means retry forever for connections left at
     the default; `wifi.powersave=2` turns power saving off.
+  - `/usr/lib/systemd/system-sleep/parrot-mbp2017-wifi` (mode 0755), from
+    `mbp2017/data/parrot-mbp2017-wifi-sleep`: on `pre`, if `brcmfmac` is
+    loaded, `modprobe -r brcmfmac_wcc brcmfmac` and leave a marker in `/run`;
+    on `post`, reload `brcmfmac` only if the marker is there. A failed unload
+    must not stop the suspend.
 - Also: purge `broadcom-sta-dkms` if installed (after confirmation). Install
   `firmware-brcm80211` if `/lib/firmware/brcm/brcmfmac43602-pcie.bin` is missing.
 - After writing: `update-initramfs -u`, `nmcli general reload conf`. Reboot if
   `wl` is currently loaded.
-- Remove: delete both files, `update-initramfs -u`, reload NetworkManager.
+- Remove: delete the three files, `update-initramfs -u`, reload NetworkManager.
 
 ### sleep: working suspend on the 15-inch models
 
