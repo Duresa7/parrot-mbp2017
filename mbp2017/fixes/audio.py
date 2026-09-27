@@ -73,13 +73,16 @@ class AudioFix(Fix):
             ctx.system.run(["apt-get", "install", "-y", *missing], mutating=True)
         if ctx.system.is_dir(CLONE_DIR):
             ctx.ui.info("The driver source is already present. Fetching the pinned commit.")
-            ctx.system.run(["git", "-C", CLONE_DIR, "fetch"], mutating=True)
+            ctx.system.run(["git", "-c", f"safe.directory={CLONE_DIR}", "-C", CLONE_DIR, "fetch"],
+                           mutating=True)
         else:
             ctx.ui.info(f"Cloning the speaker driver from {REPO_URL}.")
             ctx.system.run(["git", "clone", REPO_URL, CLONE_DIR], mutating=True)
-        ctx.system.run(["git", "-C", CLONE_DIR, "checkout", "--detach", COMMIT], mutating=True)
+        ctx.system.run(["git", "-c", f"safe.directory={CLONE_DIR}", "-C", CLONE_DIR,
+                        "checkout", "--detach", COMMIT], mutating=True)
         if not ctx.system.dry_run:
-            verify = ctx.system.run(["git", "-C", CLONE_DIR, "rev-parse", "HEAD"], check=False)
+            verify = ctx.system.run(["git", "-c", f"safe.directory={CLONE_DIR}", "-C", CLONE_DIR,
+                                     "rev-parse", "HEAD"], check=False)
             if verify.stdout.strip() != COMMIT:
                 raise FixError(f"{CLONE_DIR} is not at the pinned commit {COMMIT}. "
                               "Check the clone for local changes and try again.")
@@ -109,5 +112,6 @@ class AudioFix(Fix):
         checks = []
         for kernel, has_headers in ctx.hw.headers.items():
             if has_headers and "installed" not in entries.get(kernel, ""):
-                checks.append(Health("warn", f"The speaker driver is not installed for kernel {kernel}."))
+                checks.append(Health("warn", f"The speaker driver is not installed for kernel {kernel}. "
+                                     f"With internet connected, run: sudo dkms autoinstall -k {kernel}"))
         return checks

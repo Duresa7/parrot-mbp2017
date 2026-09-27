@@ -61,16 +61,16 @@ class AudioTests(unittest.TestCase):
             ('dpkg-query',): Result(0, 'git\t1\tii \npatch\t1\tii \n'),
             ('dkms', 'status', DKMS_NAME): [Result(1, ''), Result(0, dkms_line(KERNEL, 'installed'))],
             ('git', 'clone', REPO_URL, CLONE_DIR): Result(0),
-            ('git', '-C', CLONE_DIR, 'checkout', '--detach', COMMIT): Result(0),
-            ('git', '-C', CLONE_DIR, 'rev-parse', 'HEAD'): Result(0, COMMIT + '\n'),
+            ('git', '-c', f'safe.directory={CLONE_DIR}', '-C', CLONE_DIR, 'checkout', '--detach', COMMIT): Result(0),
+            ('git', '-c', f'safe.directory={CLONE_DIR}', '-C', CLONE_DIR, 'rev-parse', 'HEAD'): Result(0, COMMIT + '\n'),
             ('./install.cirrus.driver.sh', '-i'): Result(0, 'built\n'),
         }
         ctx = self.fixture(scripts=scripts)
         notes = AudioFix().install(ctx)
         calls = ctx.system.runner.calls
         self.assertIn(['git', 'clone', REPO_URL, CLONE_DIR], calls)
-        self.assertIn(['git', '-C', CLONE_DIR, 'checkout', '--detach', COMMIT], calls)
-        self.assertIn(['git', '-C', CLONE_DIR, 'rev-parse', 'HEAD'], calls)
+        self.assertIn(['git', '-c', f'safe.directory={CLONE_DIR}', '-C', CLONE_DIR, 'checkout', '--detach', COMMIT], calls)
+        self.assertIn(['git', '-c', f'safe.directory={CLONE_DIR}', '-C', CLONE_DIR, 'rev-parse', 'HEAD'], calls)
         self.assertIn(['./install.cirrus.driver.sh', '-i'], calls)
         apt_call = next(call for call in calls if call[:2] == ['apt-get', 'install'])
         self.assertIn('build-essential', apt_call)
@@ -84,15 +84,15 @@ class AudioTests(unittest.TestCase):
         ctx = self.fixture(scripts={
             ('dpkg-query',): Result(0, ''),
             ('dkms', 'status', DKMS_NAME): [Result(1, ''), Result(0, dkms_line(KERNEL, 'installed'))],
-            ('git', '-C', CLONE_DIR, 'fetch'): Result(0),
-            ('git', '-C', CLONE_DIR, 'checkout', '--detach', COMMIT): Result(0),
-            ('git', '-C', CLONE_DIR, 'rev-parse', 'HEAD'): Result(0, COMMIT + '\n'),
+            ('git', '-c', f'safe.directory={CLONE_DIR}', '-C', CLONE_DIR, 'fetch'): Result(0),
+            ('git', '-c', f'safe.directory={CLONE_DIR}', '-C', CLONE_DIR, 'checkout', '--detach', COMMIT): Result(0),
+            ('git', '-c', f'safe.directory={CLONE_DIR}', '-C', CLONE_DIR, 'rev-parse', 'HEAD'): Result(0, COMMIT + '\n'),
             ('./install.cirrus.driver.sh', '-i'): Result(0),
         })
         ctx.system.makedirs(CLONE_DIR, 0o755)
         AudioFix().install(ctx)
         calls = ctx.system.runner.calls
-        self.assertIn(['git', '-C', CLONE_DIR, 'fetch'], calls)
+        self.assertIn(['git', '-c', f'safe.directory={CLONE_DIR}', '-C', CLONE_DIR, 'fetch'], calls)
         self.assertNotIn(['git', 'clone', REPO_URL, CLONE_DIR], calls)
 
     def test_install_fails_when_checkout_does_not_match_pin(self):
@@ -100,8 +100,8 @@ class AudioTests(unittest.TestCase):
             ('dpkg-query',): Result(0, ''),
             ('dkms', 'status', DKMS_NAME): Result(1, ''),
             ('git', 'clone', REPO_URL, CLONE_DIR): Result(0),
-            ('git', '-C', CLONE_DIR, 'checkout', '--detach', COMMIT): Result(0),
-            ('git', '-C', CLONE_DIR, 'rev-parse', 'HEAD'): Result(0, 'deadbeef\n'),
+            ('git', '-c', f'safe.directory={CLONE_DIR}', '-C', CLONE_DIR, 'checkout', '--detach', COMMIT): Result(0),
+            ('git', '-c', f'safe.directory={CLONE_DIR}', '-C', CLONE_DIR, 'rev-parse', 'HEAD'): Result(0, 'deadbeef\n'),
         })
         with self.assertRaises(FixError):
             AudioFix().install(ctx)
@@ -111,8 +111,8 @@ class AudioTests(unittest.TestCase):
             ('dpkg-query',): Result(0, ''),
             ('dkms', 'status', DKMS_NAME): [Result(1, ''), Result(1, '')],
             ('git', 'clone', REPO_URL, CLONE_DIR): Result(0),
-            ('git', '-C', CLONE_DIR, 'checkout', '--detach', COMMIT): Result(0),
-            ('git', '-C', CLONE_DIR, 'rev-parse', 'HEAD'): Result(0, COMMIT + '\n'),
+            ('git', '-c', f'safe.directory={CLONE_DIR}', '-C', CLONE_DIR, 'checkout', '--detach', COMMIT): Result(0),
+            ('git', '-c', f'safe.directory={CLONE_DIR}', '-C', CLONE_DIR, 'rev-parse', 'HEAD'): Result(0, COMMIT + '\n'),
             ('./install.cirrus.driver.sh', '-i'): Result(0, ''),
         })
         with self.assertRaisesRegex(FixError, LOG_PATH.replace('.', r'\.')):
@@ -143,7 +143,9 @@ class AudioTests(unittest.TestCase):
         checks = AudioFix().health(ctx)
         self.assertEqual(len(checks), 1)
         self.assertEqual(checks[0].level, 'warn')
-        self.assertIn('old-kernel', checks[0].message)
+        self.assertEqual(checks[0].message,
+                         'The speaker driver is not installed for kernel old-kernel. '
+                         'With internet connected, run: sudo dkms autoinstall -k old-kernel')
 
     def test_health_empty_without_hardware(self):
         ctx = self.fixture(cs8409=False)
