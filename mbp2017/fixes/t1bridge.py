@@ -25,6 +25,11 @@ LEGACY_FILES = ("/etc/modprobe.d/apple-touchbar.conf",
                 "/etc/udev/rules.d/99-ibridge.rules")
 
 
+def installed_or_selected(ctx: Context) -> bool:
+    """True when t1bridge is installed, or selected to install earlier in this run."""
+    return "t1bridge" in ctx.options.selected or "t1bridge" in ctx.system.package_versions(["t1bridge"])
+
+
 class T1BridgeFix(Fix):
     id = "t1bridge"
     title = "Touch Bar, Touch ID, camera and ambient light sensor"

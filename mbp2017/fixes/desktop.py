@@ -1,6 +1,7 @@
 """Touch Bar desktop integration for Plasma and PipeWire."""
 
 from .base import Context, FileFix, FixError, ManagedFile, State, Status
+from .t1bridge import installed_or_selected
 from ..hardware import Hardware
 
 
@@ -25,8 +26,7 @@ class DesktopFix(FileFix):
         reason = self.gate(ctx.hw)
         if reason:
             return Status(State.NOT_NEEDED, reason)
-        if ("t1bridge" not in ctx.options.selected and
-                "t1bridge" not in ctx.system.package_versions(["t1bridge"])):
+        if not installed_or_selected(ctx):
             return Status(State.BLOCKED, "Install the t1bridge fix first.")
         return super().status(ctx)
 
