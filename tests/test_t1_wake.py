@@ -1,8 +1,8 @@
 import io
 import os
 from pathlib import Path
-import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -63,9 +63,6 @@ class T1WakeFixTests(unittest.TestCase):
 
 class HookScriptTests(unittest.TestCase):
     def run_hook(self, *args, state=""):
-        python = shutil.which("python3")
-        if not python:
-            self.skipTest("python3 is unavailable")
         for device in Path("/sys/bus/usb/devices").glob("*"):
             ids = [(device / name).read_text().strip() for name in ("idVendor", "idProduct")
                    if (device / name).exists()]
@@ -80,7 +77,7 @@ class HookScriptTests(unittest.TestCase):
                             f'echo "$*" >>"{log}"\n')
             stub.chmod(0o755)
             env = dict(os.environ, PATH=tmp + os.pathsep + os.environ.get("PATH", ""), TEST_STATE=state)
-            result = subprocess.run([python, str(repo / "mbp2017/data/parrot-mbp2017-t1-wake"), *args],
+            result = subprocess.run([sys.executable, str(repo / "mbp2017/data/parrot-mbp2017-t1-wake"), *args],
                                     env=env, capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
             return log.read_text().splitlines() if log.exists() else []
