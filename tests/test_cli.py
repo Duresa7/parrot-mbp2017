@@ -81,7 +81,8 @@ class CLITests(unittest.TestCase):
         self.assertEqual(self.call(system, '--force', '--dry-run', 'install', 'input')[0], 0)
 
     def test_setup_yes_and_default_command(self):
-        for args in [('setup', '--yes'), ('--yes',)]:
+        # --only keeps the run to one fix; every other fix has its own tests.
+        for args in [('setup', '--yes', '--only', 'input'), ('--yes', '--only', 'input')]:
             system = self.fixture()
             result, output = self.call(system, *args)
             self.assertEqual(result, 0, output)
@@ -89,7 +90,9 @@ class CLITests(unittest.TestCase):
             self.assertIn('Changed: input', output)
             self.assertIn('log out and back in', output)
             self.assertTrue(system.exists('/etc/libinput/local-overrides.quirks'))
-            self.assertEqual(len(system.runner.calls), 2)
+            mutating = [call for call in system.runner.calls if call[0] == 'udevadm']
+            self.assertEqual(mutating, [['udevadm', 'control', '--reload'],
+                                        ['udevadm', 'trigger', '--action=change', '--subsystem-match=input']])
 
     def test_repeat_install_skips_and_remove(self):
         system = self.fixture()
@@ -104,7 +107,9 @@ class CLITests(unittest.TestCase):
 
     def test_only_skip_unknown_and_usage(self):
         system = self.fixture()
-        self.assertEqual(self.call(system, 'setup', '--yes', '--skip', 'input')[0], 0)
+        result, output = self.call(system, 'setup', '--yes', '--only', 'input', '--skip', 'input')
+        self.assertEqual(result, 0)
+        self.assertIn('Nothing selected', output)
         self.assertFalse(system.exists(System.MANIFEST))
         self.assertEqual(self.call(system, 'install', 'unknown')[0], 2)
         self.assertEqual(self.call(system, 'status', '--only', 'input')[0], 2)
