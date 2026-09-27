@@ -4,6 +4,9 @@
 import sys
 from pathlib import Path
 
+# Run with sudo from a user's clone, Python would leave root-owned
+# __pycache__ folders behind that the user cannot delete or update.
+sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).absolute().parent))
 
 from mbp2017.cli import main
