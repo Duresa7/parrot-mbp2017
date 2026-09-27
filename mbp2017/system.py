@@ -57,6 +57,11 @@ class System:
         self.dry_run = dry_run
         self.runner = runner
         self.env = dict(os.environ if env is None else env)
+        # dkms, update-initramfs and friends live in sbin, which a normal
+        # user's PATH leaves out; status must still find them.
+        path = [entry for entry in self.env.get("PATH", "").split(":") if entry]
+        self.env["PATH"] = ":".join(path + [entry for entry in ("/usr/local/sbin", "/usr/sbin", "/sbin")
+                                            if entry not in path])
         self.euid = os.geteuid() if euid is None else euid
         self.out = sys.stdout if out is None else out
 

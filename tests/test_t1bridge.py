@@ -155,7 +155,7 @@ class T1BridgeTests(unittest.TestCase):
         self.assertIn(['apt-mark', 'hold', *HOLDS[1:]], self.runner.calls)
         self.assertIn(['usermod', '-aG', 't1bridge', 'alice'], self.runner.calls)
         self.assertEqual(self.system.read_text(OVERRIDE), RULE_HEADER + STOCK.replace('|5ac/8600/*', ''))
-        self.assertIn('fprintd-enroll', ' '.join(notes))
+        self.assertNotIn('fprintd-enroll', ' '.join(notes))  # repair only: no reinstall steps
 
     def test_pinned_packages_keep_existing_holds_and_group(self):
         self.ready()

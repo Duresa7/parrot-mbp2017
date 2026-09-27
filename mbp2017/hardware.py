@@ -125,7 +125,7 @@ def probe(system: System) -> Hardware:
 def summary_rows(hw: Hardware) -> list[tuple[str, str]]:
     return [
         ("Model", f"{hw.model} — {hw.model_name}"),
-        ("System", f"{hw.distro_name} (kernel {hw.kernel})"),
+        ("System", f"{hw.distro_name}, kernel {hw.kernel}"),
         ("Graphics", "Intel + AMD Radeon Pro" if hw.amd_gpu else "No AMD graphics detected"),
         ("Wi-Fi", f"Broadcom BCM43602 ({hw.wifi_driver or 'no driver bound'})"
          if hw.wifi_bcm43602 else "BCM43602 not detected"),

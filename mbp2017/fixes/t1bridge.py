@@ -197,7 +197,8 @@ class T1BridgeFix(Fix):
         if self.status(ctx).state == State.DONE:
             return warnings
         versions = ctx.system.package_versions(["t1bridge", "t1bridge-dkms"])
-        if any(versions.get(name) != VERSION for name in ("t1bridge", "t1bridge-dkms")):
+        installing = any(versions.get(name) != VERSION for name in ("t1bridge", "t1bridge-dkms"))
+        if installing:
             paths = self._resolve_packages(ctx)
             if paths is None:  # A dry-run build cannot produce packages to validate.
                 return warnings
@@ -215,6 +216,8 @@ class T1BridgeFix(Fix):
             ctx.ui.info(f"Adding {user.name} to the t1bridge group so they can use Touch ID.")
             ctx.system.run(["usermod", "-aG", "t1bridge", user.name], mutating=True)
         self._install_override(ctx)
+        if not installing:  # Only holds, group or the usbmuxd rule were repaired.
+            return warnings
         return warnings + [
             "Reboot, then run sudo t1bridge status and check that every row is ready "
             "(usb-configuration may say selected; diagnostics unavailable is expected).",

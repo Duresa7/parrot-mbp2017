@@ -245,3 +245,15 @@ class SystemTests(unittest.TestCase):
         self.system.copy_file('/source', '/nested/directory/copy', 0o600)
         self.assertEqual(self.system.read_text('/nested/directory/copy'), 'bytes')
         self.assertEqual(self.system.path('/nested/directory').stat().st_mode & 0o777, 0o700)
+
+
+class PathTests(unittest.TestCase):
+    def test_sbin_directories_are_searched_for_commands(self):
+        system = System(tempfile.mkdtemp(), env={"PATH": "/usr/bin:/bin"})
+        self.assertEqual(system.env["PATH"], "/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin")
+        system = System(tempfile.mkdtemp(), env={"PATH": "/usr/sbin:/usr/bin"})
+        self.assertEqual(system.env["PATH"].split(":").count("/usr/sbin"), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
