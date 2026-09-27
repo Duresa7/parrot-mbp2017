@@ -160,8 +160,9 @@ class T1BackupTests(unittest.TestCase):
         seen = []
 
         def extract(tar, path, **kwargs):
-            for directory in (ctx.system.path(t1_backup_module.ESP_BACKUP_DIR),
-                              ctx.system.path(t1_backup_module.RESTORE_WORKDIR), path):
+            # The state directory stays readable for status; extracted T1 data is private.
+            self.assertEqual(ctx.system.path(t1_backup_module.ESP_BACKUP_DIR).stat().st_mode & 0o777, 0o755)
+            for directory in (ctx.system.path(t1_backup_module.RESTORE_WORKDIR), path):
                 self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
             self.assertEqual(kwargs, {'filter': 'data'} if hasattr(tarfile, 'data_filter') else {})
             seen.append(path)
@@ -309,7 +310,7 @@ class T1BackupTests(unittest.TestCase):
             if argv[0] == 'tar':
                 directory = ctx.system.path(t1_backup_module.ESP_BACKUP_DIR)
                 self.assertTrue(directory.is_dir())
-                self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
+                self.assertEqual(directory.stat().st_mode & 0o777, 0o755)
             return runner(argv, opts)
 
         ctx.system.runner = run

@@ -303,5 +303,18 @@ class PathTests(unittest.TestCase):
         self.assertEqual(system.env["PATH"].split(":").count("/usr/sbin"), 1)
 
 
+class ManifestAccessTests(unittest.TestCase):
+    def test_manifest_is_readable_without_root(self):
+        system = System(tempfile.mkdtemp())
+        system.install_file("test", "/etc/example", "content")
+        self.assertEqual(system.path(System.MANIFEST).stat().st_mode & 0o777, 0o644)
+
+    def test_unreadable_manifest_asks_for_sudo(self):
+        system = System(tempfile.mkdtemp())
+        with patch.object(System, "read_bytes", side_effect=PermissionError(13, "Permission denied")):
+            with self.assertRaisesRegex(PermissionError, "Run this with sudo"):
+                system.notes("t1bridge")
+
+
 if __name__ == "__main__":
     unittest.main()

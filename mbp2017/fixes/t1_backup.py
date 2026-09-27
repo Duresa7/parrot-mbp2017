@@ -169,7 +169,7 @@ class T1BackupFix(Fix):
                           "EFI/APPLE/EMBEDDEDOS/FDRData nor an EFI-APPLE-*.tar archive.")
         tar_path = tar_matches[-1]
         extract_dir = f"{RESTORE_WORKDIR}/{PurePosixPath(tar_path).stem}"
-        ctx.system.makedirs(ESP_BACKUP_DIR, 0o700)
+        ctx.system.makedirs(ESP_BACKUP_DIR, 0o755)
         ctx.system.makedirs(RESTORE_WORKDIR, 0o700)
         try:
             ctx.system.makedirs(extract_dir, 0o700)
@@ -303,7 +303,7 @@ class T1BackupFix(Fix):
         esp_parent = str(PurePosixPath(ctx.hw.esp).parent)
         esp_name = PurePosixPath(ctx.hw.esp).name
         esp_backup = f"{ESP_BACKUP_DIR}/esp-before-t1-revive-{_today()}.tar.gz"
-        ctx.system.makedirs(ESP_BACKUP_DIR, 0o700)
+        ctx.system.makedirs(ESP_BACKUP_DIR, 0o755)
         ctx.system.run(["tar", "-C", esp_parent, "-czf", esp_backup, esp_name], mutating=True)
         ctx.ui.info("Regenerating the T1 firmware through Apple's servers. This takes a few minutes.")
 

@@ -205,6 +205,8 @@ class System:
             manifest = json.loads(self.read_bytes(self.MANIFEST))
         except FileNotFoundError:
             return {}
+        except PermissionError:
+            raise PermissionError(f"{self.MANIFEST} is readable by root only. Run this with sudo.") from None
         if not isinstance(manifest, dict) or any(
             not isinstance(entry, dict)
             or not isinstance(entry.get("files"), dict)
@@ -231,7 +233,8 @@ class System:
 
     def _save(self, manifest: dict) -> None:
         if not self.dry_run:
-            self._atomic(self.MANIFEST, (json.dumps(manifest, indent=2) + "\n").encode(), 0o600)
+            # Paths and checksums only, nothing private: readable so status works without sudo.
+            self._atomic(self.MANIFEST, (json.dumps(manifest, indent=2) + "\n").encode(), 0o644)
 
     @staticmethod
     def _entry(manifest: dict, fix_id: str) -> dict:
