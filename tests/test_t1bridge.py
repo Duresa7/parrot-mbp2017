@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from helpers import FakeRunner, KERNEL, make_mac
+from helpers import ALICE_GID, FakeRunner, KERNEL, make_mac
 from mbp2017.fixes.base import Context, FixError, Health, Options, State
 from mbp2017.fixes.t1bridge import (BUILD_LOG, CACHE, HOLDS, LEGACY_FILES, OVERRIDE,
                                   PACKAGES, RULE_HEADER, SHA_NOTE, STOCK_RULE, VERSION,
@@ -328,7 +328,7 @@ class T1BridgeTests(unittest.TestCase):
 
     def test_primary_group_and_no_nonroot_invoker(self):
         self.ready()
-        self.write("/etc/group", "t1bridge:x:1000:\n")
+        self.write("/etc/group", f"t1bridge:x:{ALICE_GID}:\n")
         self.assertEqual(self.fix.status(self.ctx).state, State.DONE)
         self.system.env = {}
         self.write("/etc/group", "")

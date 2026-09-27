@@ -7,11 +7,16 @@ Longest matching prefix wins; calls records plain argv lists and options
 records the corresponding runner options.
 """
 
+import os
 from pathlib import Path
 
 from mbp2017.system import Result
 
 KERNEL = "7.0.9+parrot7-amd64"
+# Fixtures chown files to alice for real, so she must be the user running the
+# tests (root can chown to anyone, so it keeps a separate non-root uid).
+ALICE_UID = os.getuid() if os.getuid() != 0 else 1000
+ALICE_GID = os.getgid() if os.getuid() != 0 else 1000
 
 
 def make_mac(tmpdir: str, **overrides: object) -> str:
@@ -78,7 +83,8 @@ def make_mac(tmpdir: str, **overrides: object) -> str:
             (root / "lib/modules" / kernel / "build").mkdir()
     if config["plasma"]:
         write("/usr/bin/plasmashell").chmod(0o755)
-    write("/etc/passwd", "root:x:0:0:root:/root:/bin/bash\nalice:x:1000:1000:Alice:/home/alice:/bin/bash\n")
+    write("/etc/passwd", "root:x:0:0:root:/root:/bin/bash\n"
+          f"alice:x:{ALICE_UID}:{ALICE_GID}:Alice:/home/alice:/bin/bash\n")
     return str(root)
 
 

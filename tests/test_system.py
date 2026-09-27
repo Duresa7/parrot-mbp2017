@@ -7,7 +7,7 @@ import tarfile
 import unittest
 from unittest.mock import patch
 
-from helpers import FakeRunner, make_mac
+from helpers import ALICE_UID, FakeRunner, make_mac
 from mbp2017.system import CommandError, Result, System
 
 
@@ -279,6 +279,7 @@ class SystemTests(unittest.TestCase):
 
     def test_user_and_which(self):
         make_mac(self.root)
+        self.system.euid = ALICE_UID
         self.assertEqual(self.system.invoking_user().name, 'alice')
         self.system.euid = 0
         self.assertIsNone(self.system.invoking_user())
