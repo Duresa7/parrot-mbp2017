@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import tarfile
 import unittest
 from unittest.mock import patch
 
@@ -39,6 +40,49 @@ class SystemTests(unittest.TestCase):
                 self.system.path(path)
         with patch.object(Path, 'open', side_effect=PermissionError):
             self.assertEqual(self.system.read_text('/etc/example', 'private'), 'private')
+
+    def test_state_paths(self):
+        self.assertEqual(System.STATE_DIR, '/var/lib/parrot-mbp2017')
+        self.assertEqual(System.MANIFEST, System.STATE_DIR + '/manifest.json')
+        self.assertEqual(System.REPLACED, System.STATE_DIR + '/replaced')
+
+    def test_unmanaged_write_contents_modes_owner_and_log(self):
+        for content in ('private text', b'\x00\xff'):
+            with self.subTest(content=content), patch.object(self.system, 'chown') as chown:
+                self.system.write_file('/backup/data', content, 0o600, owner=(123, 456))
+                chown.assert_called_once_with('/backup/data', 123, 456)
+                expected = content.encode() if isinstance(content, str) else content
+                self.assertEqual(self.system.read_bytes('/backup/data'), expected)
+                self.assertEqual(self.system.path('/backup/data').stat().st_mode & 0o777, 0o600)
+        self.assertFalse(self.system.exists(System.MANIFEST))
+        self.assertIn('wrote file: /backup/data', self.system.read_text('/var/log/parrot-mbp2017.log'))
+        self.assertNotIn('private text', self.system.read_text('/var/log/parrot-mbp2017.log'))
+
+    def test_create_tar_members_modes_owner_and_log(self):
+        self.write('/source/nested/file', 'private data')
+        with patch.object(self.system, 'chown') as chown:
+            self.system.create_tar('/source', 'EFI/APPLE', '/backup/data.tar', 0o600, owner=(123, 456))
+        chown.assert_called_once_with('/backup/data.tar', 123, 456)
+        with tarfile.open(self.system.path('/backup/data.tar')) as archive:
+            self.assertEqual(archive.getnames(), ['EFI/APPLE', 'EFI/APPLE/nested', 'EFI/APPLE/nested/file'])
+            self.assertEqual(archive.extractfile('EFI/APPLE/nested/file').read(), b'private data')
+        self.assertEqual(self.system.path('/backup/data.tar').stat().st_mode & 0o777, 0o600)
+        self.assertFalse(self.system.exists(System.MANIFEST))
+        self.assertIn('created archive: /source to /backup/data.tar',
+                      self.system.read_text('/var/log/parrot-mbp2017.log'))
+
+    def test_unmanaged_write_and_tar_failures_preserve_destination(self):
+        self.write('/backup/data', 'original')
+        self.write('/source/file', 'new')
+        with patch('mbp2017.system.os.replace', side_effect=OSError('rename failed')):
+            with self.assertRaises(OSError):
+                self.system.write_file('/backup/data', 'replacement', 0o600)
+        with patch('mbp2017.system.tarfile.TarFile.add', side_effect=OSError('read failed')):
+            with self.assertRaises(OSError):
+                self.system.create_tar('/source', 'EFI/APPLE', '/backup/data', 0o600)
+        self.assertEqual(self.system.read_text('/backup/data'), 'original')
+        self.assertEqual(self.system.listdir('/backup'), ['data'])
+        self.assertFalse(self.system.exists(System.MANIFEST))
 
     def test_new_file_idempotent_and_remove(self):
         self.assertTrue(self.system.install_file('test', '/etc/new', b'content', 0o750))
@@ -157,6 +201,8 @@ class SystemTests(unittest.TestCase):
         self.system.clear_notes('test')
         self.system.makedirs('/new')
         self.system.copy_file('/source', '/target', 0o600)
+        self.system.write_file('/backup/data', 'private data', 0o600, owner=(123, 456))
+        self.system.create_tar('/missing', 'EFI/APPLE', '/backup/data.tar', 0o600, owner=(123, 456))
         self.system.chown('/target', 1000, 1000)
         self.system.run(['would-not-exist'], mutating=True)
         self.system.run_streamed(['build'], log_path='/log')
@@ -166,6 +212,8 @@ class SystemTests(unittest.TestCase):
         self.assertEqual(list(self.root.iterdir()), [])
         self.assertEqual(self.runner.calls, [])
         self.assertIn('would run:', self.out.getvalue())
+        self.assertIn('would write file: /backup/data', self.out.getvalue())
+        self.assertIn('would create archive: /missing to /backup/data.tar', self.out.getvalue())
 
     def test_dry_run_remove_preserves_manifest_and_file(self):
         self.system.install_file('test', '/file', 'data')

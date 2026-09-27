@@ -11,15 +11,16 @@ from typing import Iterator
 
 from .base import Context, Fix, FixError, State, Status
 from ..hardware import Hardware, probe
+from ..system import System
 
-RESTORE_WORKDIR = "/var/lib/parrot-mbp2017/restore-t1"
+RESTORE_WORKDIR = System.STATE_DIR + "/restore-t1"
 
 T1_REVIVE_REPO = "https://github.com/niconistal/t1-revive.git"
 T1_REVIVE_COMMIT = "c2062f3a09b2d278649d3ec48bbb7d15c8b55bcf"
 T1_REVIVE_DIR = "/var/cache/parrot-mbp2017/t1-revive"
 T1_REVIVE_BUILD_LOG = "/var/log/parrot-mbp2017-t1-revive-build.log"
 T1_REVIVE_LOG = "/var/log/parrot-mbp2017-t1-revive.log"
-ESP_BACKUP_DIR = "/var/lib/parrot-mbp2017"
+ESP_BACKUP_DIR = System.STATE_DIR
 
 BUILD_PACKAGES = ("autoconf", "automake", "libtool", "pkgconf", "git", "patch",
                   "libzip-dev", "libusb-1.0-0-dev", "libssl-dev", "zlib1g-dev",
@@ -92,26 +93,15 @@ class T1BackupFix(Fix):
         archive_path = f"{backup_dir}/EFI-APPLE-{_today()}.tar"
         sums_path = f"{backup_dir}/SHA256SUMS"
         efi_apple = f"{ctx.hw.esp}/EFI/APPLE"
-        host_archive = ctx.system.path(archive_path)
-        host_archive.parent.mkdir(parents=True, exist_ok=True)
-        with tarfile.open(host_archive, "w") as tar:
-            tar.add(ctx.system.path(efi_apple), arcname="EFI/APPLE")
-        host_archive.chmod(0o600)
-        lines = []
-        with tarfile.open(host_archive, "r") as tar:
-            members = sorted((member for member in tar.getmembers()
-                              if member.isfile() and member.name.startswith("EFI/APPLE/EMBEDDEDOS/")),
-                             key=lambda member: member.name)
-            for member in members:
-                data = tar.extractfile(member).read()
-                lines.append(f"{hashlib.sha256(data).hexdigest()}  {member.name}\n")
-        host_sums = ctx.system.path(sums_path)
-        host_sums.write_text("".join(lines), encoding="utf-8")
-        host_sums.chmod(0o600)
         user = ctx.system.invoking_user()
-        if user is not None:
-            ctx.system.chown(archive_path, user.uid, user.gid)
-            ctx.system.chown(sums_path, user.uid, user.gid)
+        owner = (user.uid, user.gid) if user else None
+        ctx.system.create_tar(efi_apple, "EFI/APPLE", archive_path, 0o600, owner=owner)
+        lines = []
+        for name in self._walk_files(ctx, f"{efi_apple}/EMBEDDEDOS"):
+            member = f"EFI/APPLE/EMBEDDEDOS/{name}"
+            data = ctx.system.read_bytes(f"{ctx.hw.esp}/{member}")
+            lines.append(f"{hashlib.sha256(data).hexdigest()}  {member}\n")
+        ctx.system.write_file(sums_path, "".join(lines), 0o600, owner=owner)
         ctx.system.log(f"t1-backup: wrote {archive_path} and {sums_path}")
         return [f"Backup saved to {backup_dir}.",
                 "Keep a copy off this Mac (a USB stick or private cloud storage) and never share it: "

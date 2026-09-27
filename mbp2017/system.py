@@ -47,8 +47,9 @@ class User:
 
 
 class System:
-    MANIFEST = "/var/lib/parrot-mbp2017/manifest.json"
-    REPLACED = "/var/lib/parrot-mbp2017/replaced"
+    STATE_DIR = "/var/lib/parrot-mbp2017"
+    MANIFEST = STATE_DIR + "/manifest.json"
+    REPLACED = STATE_DIR + "/replaced"
 
     def __init__(self, root: str = "/", *, dry_run: bool = False,
                  runner: Callable | None = None, env: dict | None = None,
@@ -430,6 +431,41 @@ class System:
             return
         os.chown(self.path(path), uid, gid)
         self.log(f"changed owner: {path}")
+
+    def write_file(self, path: str, content: str | bytes, mode: int,
+                   owner: tuple[int, int] | None = None) -> None:
+        """Atomically write unmanaged data without recording it in the manifest."""
+        if self.dry_run:
+            self._would(f"write file: {path}")
+            return
+        self._atomic(path, self._bytes(content), mode)
+        if owner is not None:
+            self.chown(path, *owner)
+        self.log(f"wrote file: {path}")
+
+    def create_tar(self, src_dir: str, arcname: str, dst: str, mode: int,
+                   owner: tuple[int, int] | None = None) -> None:
+        """Atomically archive a directory without recording it in the manifest."""
+        if self.dry_run:
+            self._would(f"create archive: {src_dir} to {dst}")
+            return
+        source, target = self.path(src_dir), self.path(dst)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp = tempfile.mkstemp(prefix=".parrot-mbp2017-", dir=target.parent)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                with tarfile.open(fileobj=stream, mode="w") as tar:
+                    tar.add(source, arcname=arcname)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp, target)
+            target.chmod(mode)
+            if owner is not None:
+                self.chown(dst, *owner)
+        finally:
+            if os.path.exists(temp):
+                os.unlink(temp)
+        self.log(f"created archive: {src_dir} to {dst}")
 
     def extract_tar(self, src: str, dst: str) -> None:
         if self.dry_run:

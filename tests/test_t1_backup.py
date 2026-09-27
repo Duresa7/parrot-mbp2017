@@ -1,5 +1,6 @@
 from dataclasses import replace
 import io
+from hashlib import sha256
 from pathlib import Path
 import shutil
 import tarfile
@@ -66,8 +67,28 @@ class T1BackupTests(unittest.TestCase):
         self.assertIn('EFI/APPLE/EMBEDDEDOS/combined.memboot', text)
         self.assertIn('EFI/APPLE/EMBEDDEDOS/version.plist', text)
         self.assertIn('EFI/APPLE/EMBEDDEDOS/FDRData/fixture', text)
+        with tarfile.open(ctx.system.path(archive)) as tar:
+            files = sorted(member.name for member in tar.getmembers() if member.isfile())
+            expected = ''.join(f"{sha256(tar.extractfile(name).read()).hexdigest()}  {name}\n"
+                               for name in files)
+        self.assertEqual(text, expected)
+        self.assertFalse(ctx.system.exists(System.MANIFEST))
         self.assertTrue(any('Keep a copy' in note for note in notes))
         self.assertEqual(T1BackupFix().status(ctx).state, State.DONE)
+
+    def test_backup_dry_run_writes_nothing(self):
+        ctx = self.fixture()
+        ctx.system.dry_run = True
+        ctx.system.out = io.StringIO()
+        before = {str(p): p.read_bytes() for p in ctx.system.root.rglob('*') if p.is_file()}
+        T1BackupFix().install(ctx)
+        after = {str(p): p.read_bytes() for p in ctx.system.root.rglob('*') if p.is_file()}
+        self.assertEqual(before, after)
+        self.assertFalse(ctx.system.exists(self.backup_dir(ctx)))
+
+    def test_restore_state_paths(self):
+        self.assertEqual(t1_backup_module.RESTORE_WORKDIR, System.STATE_DIR + '/restore-t1')
+        self.assertEqual(t1_backup_module.ESP_BACKUP_DIR, System.STATE_DIR)
 
     def test_status_changes_when_esp_file_changes(self):
         ctx = self.fixture()
