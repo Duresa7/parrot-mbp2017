@@ -8,9 +8,9 @@ from ..hardware import Hardware
 
 class FingerprintLoginFix(Fix):
     id = "fingerprint-login"
-    title = "Touch ID for sudo and the lock screen"
+    title = "Touch ID for sudo and other password prompts"
     summary = "Allow an enrolled fingerprint to authenticate while keeping password login."
-    why = "Enable the distribution's fingerprint authentication profile so Touch ID can be used for sudo and the lock screen."
+    why = "Enable the distribution's fingerprint authentication profile so Touch ID can be used for sudo and other password prompts."
     default = False
     requires = ("t1bridge",)
 
@@ -54,6 +54,6 @@ class FingerprintLoginFix(Fix):
 
     def remove(self, ctx: Context) -> list[str]:
         if self._enabled(ctx):
-            ctx.ui.info("Disable fingerprint authentication so sudo and the lock screen use your password.")
+            ctx.ui.info("Disable fingerprint authentication so sudo and other password prompts use your password only.")
             ctx.system.run(["pam-auth-update", "--disable", "fprintd"], mutating=True)
         return []
