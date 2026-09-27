@@ -17,13 +17,13 @@ fixes it needs, and applies only those — each one reversible.
 | Wi-Fi | Stays connected; recovers on its own after a short outage and after sleep |
 | Sleep (15-inch models) | Suspend and resume work using the lighter s2idle mode (see [Known issues](#known-issues)) |
 | Speakers | Internal speakers work |
-| Touch Bar | Displays and responds to touch |
-| Touch ID | Enrolled fingerprint works with `fprintd-verify` |
+| Touch Bar | Displays and responds to touch, including after sleep and after logging out and back in |
+| Touch ID | Enrolled fingerprint unlocks the Plasma lock screen, including after sleep |
 | FaceTime camera | Works — H.264 only, so some apps can't use it yet |
 | Ambient light sensor | Works |
 | Trackpad | Ignores resting palms while typing; Touch Bar isn't mistaken for a second trackpad |
 | Touch Bar volume and brightness | Volume, mute and media buttons appear on the Touch Bar; brightness changes show the KDE Plasma popup and the brightness slider stays in sync |
-| Fingerprint sudo and lock screen | Optional (off by default): an enrolled finger unlocks `sudo` and the lock screen too |
+| Fingerprint for `sudo` | Optional (off by default): an enrolled finger also works for `sudo` and other password prompts |
 
 ## Is my Mac supported?
 
@@ -82,7 +82,7 @@ Touch Bar (T1)  running, USB configuration 2
 2. [x] wifi: Stable Wi-Fi on the Broadcom BCM43602
 3. [x] sleep: Working suspend on the 15-inch models
 ...
-8. [ ] fingerprint-login: Touch ID for sudo and the lock screen
+9. [ ] fingerprint-login: Touch ID for sudo and other password prompts
 Type numbers to toggle (separated by spaces), or press Enter to accept:
 ```
 
@@ -139,10 +139,11 @@ slowest step — a few minutes with Docker installed, longer without it.
 - **t1-wake** — turns the Touch Bar back on and gets Touch ID ready as soon as
   the Mac wakes from sleep. Needs t1bridge first.
 - **desktop** — connects the Touch Bar's volume, mute and media buttons, and
-  brightness popups, to your desktop. Needs t1bridge first.
+  brightness popups, to Plasma; restarts the Touch Bar with every login; and
+  lets an enrolled fingerprint unlock the lock screen. Needs t1bridge first.
 - **fingerprint-login** — lets an enrolled fingerprint authenticate `sudo`
-  and the lock screen, on top of your password. Off by default, since it
-  changes how you log in as an administrator.
+  and other password prompts, on top of your password. Off by default, since
+  it changes how you log in as an administrator.
 
 Full detail — exact files, packages and commands for each — is in
 [docs/fixes.md](docs/fixes.md).
@@ -211,6 +212,14 @@ their distribution version. Two things are deliberately kept:
   `done` in `sudo ./parrot-mbp2017 status`. It is tested with the light sleep
   the `sleep` fix sets on 15-inch models; after deep sleep, upstream reports
   the panel stays dark until a reboot.
+- **Touch Bar shows buttons but ignores touches.** Its renderer isn't
+  running. Check that `desktop` shows `done`, then log out and back in, or
+  run `systemctl --user restart t1-touchbar.service`.
+- **Fingerprint doesn't unlock the lock screen.** The lock screen listens
+  for a finger for 30 seconds after the Mac locks or wakes. After that, press
+  Enter in the empty password box, wait 3 seconds, then touch the sensor. The
+  login screen you see after starting up or logging out asks for your
+  password.
 - **Camera isn't listed in some apps.** It only outputs H.264, which not
   every application supports yet.
 

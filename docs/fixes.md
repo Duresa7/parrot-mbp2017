@@ -336,11 +336,15 @@ lock screen with the panel back on and the key service restarted before the
 desktop resumed; the owner unlocked with a fingerprint and the Touch Bar
 buttons responded.
 
-## desktop: Touch Bar volume and media keys, brightness popups
+## desktop: Touch Bar controls and lock screen Touch ID in Plasma
 
 **The problem:** with t1bridge alone, the Touch Bar doesn't show volume, mute
 or media buttons, and changing brightness shows no on-screen popup — Plasma's
 brightness slider also drifts out of sync with the actual screen brightness.
+After logging out and back in, the Touch Bar can also freeze: it still
+shows its buttons but ignores touches. And an enrolled fingerprint doesn't
+unlock Plasma's lock screen, even though the lock screen says it accepts
+one.
 
 **The cause:** t1bridge ships no desktop integration by itself; it expects a
 "desktop provider" plugin to translate its Touch Bar button events into
@@ -348,6 +352,20 @@ actions your desktop understands, and to tell it what to display. It also
 changes brightness through logind rather than sending normal brightness key
 presses, which is why Plasma's own brightness UI doesn't notice the change
 unless something tells it to.
+
+t1bridge's Touch Bar renderer, `t1-touchbar.service`, stops when you log out
+but is only started when your user's systemd manager starts. That manager
+keeps running for 10 seconds after you log out, and indefinitely while an
+SSH session or lingering keeps it alive; log back in during that time and
+the renderer is not started again.
+
+The lock screen runs a separate fingerprint service, `kde-fingerprint`,
+alongside the password box. Parrot's copy
+(`/usr/lib/pam.d/kde-fingerprint`) runs `pam_kwallet5` after the finger
+matches; with no password to open the wallet, `pam_kwallet5` asks for one,
+the lock screen never answers, and the unlock hangs. Plasma 6.3 also stops
+listening for the rest of a lock once a check reports "unavailable", which
+happens whenever a check times out (the T1 ends each one after 30 seconds).
 
 **What changes:**
 
@@ -362,11 +380,26 @@ unless something tells it to.
 - Best-effort reloads and restarts the invoking user's `t1-touchbar.service`
   (`systemctl --user -M <user>@ daemon-reload` and `try-restart`); if that
   doesn't apply cleanly, log out and back in instead.
+- Installs
+  `/etc/systemd/user/graphical-session.target.d/parrot-mbp2017-touchbar.conf`,
+  which starts the renderer with every graphical session.
+- With Plasma installed, installs `/etc/pam.d/kde-fingerprint`, which takes
+  precedence over Parrot's copy. It is the same service without
+  `pam_kwallet5` in the authentication step, and it reports a failed or
+  timed-out check as a plain failure rather than "unavailable". The password
+  box uses a different service, `kde`, which is not touched.
 
 **Depends on:** `t1bridge` — this fix shows as `blocked` in `status` until
 t1bridge is installed (or selected in the same `setup` run).
 
-**Undo:** `remove desktop` deletes both files and does the same reload/restart.
+**Using Touch ID on the lock screen:** the lock screen listens for a finger
+for 30 seconds after the Mac locks or wakes. After that, press Enter in the
+empty password box, wait 3 seconds, then touch the sensor; Plasma only
+starts a new check after a failed password attempt, and other key presses
+don't count. The login screen you see after starting up or logging out asks
+for your password; this fix does not change it.
+
+**Undo:** `remove desktop` deletes its files and does the same reload/restart.
 
 **How it was verified:** on the tested Mac under KDE Plasma 6.3, the owner
 confirmed that the Touch Bar brightness buttons showed Plasma's popup again.
@@ -375,10 +408,23 @@ backlight and volume popups, left the hardware brightness unchanged (no
 flicker), and brought Plasma's brightness slider back in sync with the
 hardware. The media buttons have not been tested.
 
-## fingerprint-login: Touch ID for sudo and the lock screen
+For the renderer, the owner logged out and back in while an SSH session kept
+the user manager running. Before the change the Touch Bar froze on its last
+frame; with it, the renderer started again at login and the buttons worked.
 
-**The problem:** by default, an enrolled fingerprint only works with the
-`fprintd-verify` command-line tool, not with `sudo` or the lock screen.
+For the lock screen, the owner locked the Mac, pressed Shift, then touched
+the sensor, and it unlocked; the fingerprint service reported a match and
+the key service came back straight after. With Parrot's copy, the same match
+left the lock screen hanging until a failed password attempt. After a
+timed sleep, the check that started on waking timed out before the owner
+reached the Mac; a failed password attempt started a new one, and the
+fingerprint unlocked the lock screen.
+
+## fingerprint-login: Touch ID for sudo and other password prompts
+
+**The problem:** by default, an enrolled fingerprint works with the
+`fprintd-verify` command-line tool and, with the `desktop` fix, Plasma's
+lock screen, but not with `sudo` or other password prompts.
 
 **The cause:** using a fingerprint for actual authentication needs the
 distribution's PAM (Pluggable Authentication Modules) profile for fprintd
@@ -392,7 +438,9 @@ authenticate as an administrator.
 - Warns if `fprintd-list <user>` shows no enrolled finger yet.
 - Runs `pam-auth-update --enable fprintd`, which adds `pam_fprintd.so` to
   `/etc/pam.d/common-auth`. Your password keeps working as a fallback —
-  nothing about password login is removed.
+  nothing about password login is removed. Everything that includes
+  `common-auth` asks for a finger first, for up to 10 seconds, before the
+  password; that includes Plasma's lock screen password box.
 
 **Depends on:** `t1bridge` (for the `libpam-fprintd` package and the fprintd
 PAM profile it installs).

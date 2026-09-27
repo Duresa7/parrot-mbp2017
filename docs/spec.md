@@ -343,7 +343,7 @@ for example `# Installed by parrot-mbp2017 (wifi).`
 - Limits: only tested after s2idle; upstream reports the panel stays dark
   after S3 even when unparked (t1bridge#18).
 
-### desktop: Touch Bar volume and media keys, brightness popups
+### desktop: Touch Bar controls and lock screen Touch ID in Plasma
 
 - Default: on. Gate: T1 present. `blocked` until the t1bridge fix is done (or is
   selected in the same run).
@@ -351,6 +351,13 @@ for example `# Installed by parrot-mbp2017 (wifi).`
   Touch Bar hides its volume, mute and media buttons, and brightness changes
   show no popup because t1bridge sets brightness through logind instead of
   sending key presses, which also leaves Plasma's brightness slider out of sync.
+  `t1-touchbar.service` is `PartOf=graphical-session.target` but only
+  `WantedBy=default.target`, so logging back in while the user manager is
+  still running leaves it stopped. Parrot's `/usr/lib/pam.d/kde-fingerprint`
+  runs `pam_kwallet5` after a matched finger, which prompts for a password the
+  lock screen never supplies, and Plasma 6.3 disables the fingerprint
+  authenticator for the rest of a lock after `PAM_AUTHINFO_UNAVAIL`, which
+  `pam_fprintd` returns on every timeout.
 - Files:
   - `/usr/local/lib/parrot-mbp2017/desktop-provider` (mode 0755), from
     `mbp2017/data/desktop-provider`. Implements t1bridge's desktop provider v1
@@ -359,11 +366,18 @@ for example `# Installed by parrot-mbp2017 (wifi).`
   - `/etc/systemd/user/t1-touchbar.service.d/parrot-mbp2017-desktop-provider.conf`:
     `[Service]` with
     `Environment=T1BRIDGE_DESKTOP_PROVIDER=/usr/local/lib/parrot-mbp2017/desktop-provider`.
+  - `/etc/systemd/user/graphical-session.target.d/parrot-mbp2017-touchbar.conf`:
+    `[Unit]` with `Wants=t1-touchbar.service`.
+  - `/etc/pam.d/kde-fingerprint`, only with Plasma: the packaged service with
+    the auth stack replaced by `pam_nologin`, `pam_succeed_if user != root`,
+    `[success=1 default=ignore] pam_fprintd.so`, `requisite pam_deny.so`,
+    `required pam_permit.so`. No `pam_kwallet5` in auth. The `kde` password
+    service is not changed.
 - After writing: best effort `systemctl --user -M <user>@ daemon-reload` and
-  `restart t1-touchbar.service` for the invoking user; otherwise tell them to
-  log out and back in.
+  `try-restart t1-touchbar.service` for the invoking user; otherwise tell them
+  to log out and back in.
 
-### fingerprint-login: Touch ID for sudo and the lock screen
+### fingerprint-login: Touch ID for sudo and other password prompts
 
 - Default: off (opt-in). Gate: `libpam-fprintd` installed.
 - Install: explain that the password keeps working, suggest keeping a root

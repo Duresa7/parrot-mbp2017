@@ -74,7 +74,10 @@ and applied the wifi, sleep, input, t1bridge (usbmuxd rule only, since the
 packages were already installed from the same build) and desktop fixes.
 `status` then reported every fix done, a second run changed nothing, and
 `remove input` followed by `install input` switched palm rejection off and
-on again. Not yet run on hardware through the tool: `restore-t1`,
+on again. Later, `install wifi t1-wake desktop` added the sleep scripts, the
+Touch Bar login fix and the lock screen fingerprint service, and `status`
+again reported every fix done apart from the opt-in `fingerprint-login`.
+Not yet run on hardware through the tool: `restore-t1`,
 `fingerprint-login`, `remove t1bridge`, and a fresh t1bridge build and
 install on a Mac without it.
 
