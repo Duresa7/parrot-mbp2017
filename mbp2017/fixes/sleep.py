@@ -50,8 +50,10 @@ class SleepFix(FileFix):
                                                    ctx.system.data_text(item.data_name), item.mode)
         if changed:
             self.after_install(ctx)
-        return ["t1bridge does not yet keep the T1 working through sleep; the Touch Bar or Touch ID "
-                "may need a reboot after waking.", "Thunderbolt logs errors on resume."]
+        notes = ["Thunderbolt logs errors on resume."]
+        if ctx.hw.t1:
+            notes.insert(0, "The t1-wake fix brings the Touch Bar and Touch ID back after waking.")
+        return notes
 
     def after_install(self, ctx: Context) -> list[str]:
         ctx.ui.info("Reload device rules; the sleep changes take full effect after a reboot.")
