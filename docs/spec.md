@@ -109,9 +109,38 @@ for example `# Installed by parrot-mbp2017 (wifi).`
   `EFI/APPLE/EMBEDDEDOS`. Verify the backup's checksums, then copy
   `EMBEDDEDOS` back into the ESP. Never overwrite existing T1 data. Tell the user
   to reboot; the T1 should then show up as `05ac:8600`. Documented as untested.
-- If the T1 is in recovery mode and there is no backup, point to
-  [t1-revive](https://github.com/niconistal/t1-revive) with the steps in
-  `docs/t1-recovery.md`.
+- `restore-t1 --online`: regenerate the T1 firmware through Apple's servers
+  with [t1-revive](https://github.com/niconistal/t1-revive) at commit
+  `c2062f3a09b2d278649d3ec48bbb7d15c8b55bcf`, for a T1 in recovery mode
+  (`05ac:1281`) with no backup. This is the path that restored the tested Mac
+  (about 2 minutes to build, 4 minutes to run). Steps:
+  1. Refuse unless the T1 is at `05ac:1281`, the ESP has no
+     `EFI/APPLE/EMBEDDEDOS`, the charger is connected
+     (`/sys/class/power_supply/ADP1/online` is `1`) and the legacy
+     `apple-ib-drv` Touch Bar driver is not installed (it can wedge the
+     restore). Explain that Apple's servers (gs.apple.com, swcdn.apple.com)
+     receive the T1's identity during signing, and ask for confirmation.
+  2. Install build dependencies: `autoconf automake libtool pkgconf git patch
+     libzip-dev libusb-1.0-0-dev libssl-dev zlib1g-dev libreadline-dev
+     acpi-call-dkms python3`, and `libcurl4-openssl-dev` from
+     `<codename>-backports` (from the main suite it conflicts with Parrot's
+     backported libcurl). Then `modprobe acpi_call`.
+  3. Stop `usbmuxd` if running (t1-revive runs its own).
+  4. Clone to `/var/cache/parrot-mbp2017/t1-revive` owned by the invoking user,
+     check out the pinned commit, and run `bash build.sh` as that user.
+  5. `bin/t1-revive preflight` as root. Its only expected NO line on Parrot is
+     the Arch package check; stop on any other NO line and show it.
+  6. Back up the whole ESP to
+     `/var/lib/parrot-mbp2017/esp-before-t1-revive-<date>.tar.gz`.
+  7. Run `systemd-inhibit --what=sleep:idle:handle-lid-switch
+     --who=parrot-mbp2017 --why="T1 firmware restore" bin/t1-revive
+     --no-confirm regenerate` from the clone, output to
+     `/var/log/parrot-mbp2017-t1-revive.log`, stage lines on screen.
+  8. Verify the T1 is at `05ac:8600` and `EMBEDDEDOS/FDRData`,
+     `combined.memboot` and `version.plist` exist. Tell the user to shut down
+     fully and power on again (a warm reboot does not reset the T1), then run
+     the `t1-backup` fix.
+  Details and manual steps live in `docs/t1-recovery.md`.
 
 ### wifi: stable Wi-Fi on the Broadcom BCM43602
 
@@ -177,11 +206,27 @@ for example `# Installed by parrot-mbp2017 (wifi).`
 - Why: the mainline `snd-hda-codec-cs8409` driver does not drive the MacBook
   Pro speaker amplifiers, so the speakers are silent.
 - Install: the out-of-tree driver
-  [davidjo/snd_hda_macbookpro](https://github.com/davidjo/snd_hda_macbookpro),
-  pinned to a commit, installed through DKMS so it rebuilds for new kernels.
-  Exact steps are in the task brief for this fix.
-- Status: `done` when DKMS reports the module installed for the running kernel.
-- Remove: `dkms remove --all` for the module, delete its source dir.
+  [davidjo/snd_hda_macbookpro](https://github.com/davidjo/snd_hda_macbookpro)
+  at commit `89b22ff90b86468b186706861dd18663562defa7`, installed through DKMS
+  (name `snd_hda_macbookpro/0.1`) so it rebuilds for new kernels.
+  1. Install `build-essential dkms git patch wget` and
+     `linux-headers-<running kernel>` if missing.
+  2. `git clone https://github.com/davidjo/snd_hda_macbookpro.git
+     /usr/local/src/snd_hda_macbookpro` and check out the pinned commit (verify
+     `git rev-parse HEAD`).
+  3. `./install.cirrus.driver.sh -i` from that directory. It runs `dkms.sh`,
+     which symlinks `/usr/src/snd_hda_macbookpro-0.1` to the clone and runs
+     `dkms install`. The DKMS pre-build step downloads the matching kernel
+     source from cdn.kernel.org, so every kernel update needs internet to
+     rebuild the module. Took about 20 s on the tested Mac.
+  4. Speakers work after a reboot.
+- Status: `done` when `dkms status snd_hda_macbookpro` reports `installed` for
+  the running kernel.
+- Health: warn for every installed kernel with headers where the module is not
+  installed.
+- Remove: `./install.cirrus.driver.sh -r` (runs `dkms remove`, which restores
+  the stock module, and deletes the `/usr/src` symlink), then delete
+  `/usr/local/src/snd_hda_macbookpro`.
 
 ### input: palm rejection and Touch Bar touches
 
@@ -242,9 +287,15 @@ for example `# Installed by parrot-mbp2017 (wifi).`
      1, which conflicts with t1bridge.
   2. Get the packages: `--debs DIR` if given; otherwise a cached build in
      `/var/cache/parrot-mbp2017/t1bridge-<version>/`; otherwise build them with
-     Docker when available, else natively (installs build dependencies with
-     apt). Build output goes to `/var/log/parrot-mbp2017-build.log`; the user
-     sees only stage lines and a time estimate.
+     `packaging/t1bridge/build-debs.sh`: in Docker when the daemon is
+     available (about 5 minutes on 6 cores, nothing installed on the host),
+     else natively with `--native` (installs the build dependencies with apt;
+     Parrot ships its `deb-src` lines commented out, so the native build adds
+     `/etc/apt/sources.list.d/parrot-mbp2017-src.list` for the build and
+     removes it afterwards). Build output goes to
+     `/var/log/parrot-mbp2017-build.log`; the user sees only stage lines and a
+     time estimate. Check the package set is complete before removing
+     anything in step 1.
   3. `apt-get install -y --allow-downgrades` the five packages using absolute
      paths, then `apt-mark hold libfprint-2-2 fprintd libpam-fprintd` so an
      update cannot split the matched pair.
@@ -306,6 +357,7 @@ for example `# Installed by parrot-mbp2017 (wifi).`
 | `install FIX...` | Apply the named fixes |
 | `remove FIX...` | Undo the named fixes |
 | `restore-t1 --from DIR` | Put a T1 backup back on the EFI partition |
+| `restore-t1 --online` | Regenerate lost T1 firmware with t1-revive |
 | `list` | Every fix with its description and why it exists |
 
 Options: `--yes` (accept defaults, no prompts), `--dry-run`, `--only IDS` and
