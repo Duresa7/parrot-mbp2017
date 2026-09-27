@@ -16,5 +16,8 @@
 - Tests use `unittest`, run offline and unprivileged, and build fixture trees
   under a temp dir.
 - Shell scripts use `set -euo pipefail`, tabs for indentation, and pass
-  `shellcheck`.
+  `shellcheck`. Two deliberate exceptions: `mbp2017/data/desktop-provider`
+  uses `set -u` with explicit checks because failing desktop calls (D-Bus,
+  wpctl) must not abort it; Debian maintainer scripts under
+  `packaging/t1bridge/debian/` are POSIX sh and use `set -e`.
 - Commits carry no AI attribution trailers.
