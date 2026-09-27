@@ -1,0 +1,7 @@
+# Installed by parrot-mbp2017 (input).
+# applespi reports vendor 0x0000, so libinput's Apple vendor 0x05AC quirk never applies.
+[parrot-mbp2017 Apple SPI Keyboard]
+MatchUdevType=keyboard
+MatchBus=spi
+MatchName=Apple SPI Keyboard
+AttrKeyboardIntegration=internal
