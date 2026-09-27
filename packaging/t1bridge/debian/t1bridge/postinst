@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "configure" ]; then
+	systemd-sysusers /usr/lib/sysusers.d/t1bridge.conf
+	systemd-tmpfiles --create /usr/lib/tmpfiles.d/t1bridge.conf || true
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload
+		udevadm control --reload || true
+	fi
+	# First install: apply the same presets the Arch package ships.
+	if [ -z "$2" ]; then
+		systemctl enable t1-touchbar-hw.service t1-touchid-auth.socket \
+			t1bridge-fingerprint.socket
+		systemctl --global enable t1-touchbar.service
+	fi
+fi
+
+exit 0

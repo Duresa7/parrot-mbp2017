@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "remove" ]; then
+	if [ -d /run/systemd/system ]; then
+		systemctl stop t1-touchid-auth.socket t1bridge-fingerprint.socket \
+			t1-touchid-auth.service t1bridge-keybag.service \
+			t1-touchbar-hw.service t1-touchbar-hw.socket || true
+	fi
+	systemctl disable t1-touchbar-hw.service t1-touchid-auth.socket \
+		t1bridge-fingerprint.socket || true
+	systemctl --global disable t1-touchbar.service || true
+fi
+
+exit 0

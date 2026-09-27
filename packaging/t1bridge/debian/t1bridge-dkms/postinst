@@ -1,0 +1,20 @@
+#!/bin/sh
+set -e
+
+NAME=t1bridge-dkms
+VERSION=@VERSION@
+
+if [ "$1" = "configure" ]; then
+	dkms add -m "$NAME" -v "$VERSION" 2>/dev/null || true
+	for kdir in /lib/modules/*; do
+		kver=$(basename "$kdir")
+		[ -e "$kdir/build" ] || continue
+		dkms build -m "$NAME" -v "$VERSION" -k "$kver"
+		dkms install -m "$NAME" -v "$VERSION" -k "$kver" --force
+	done
+	# t1_cfgsel must be in the initramfs so it wins the iBridge before the
+	# generic USB drivers bind it.
+	update-initramfs -u -k all
+fi
+
+exit 0
