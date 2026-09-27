@@ -59,7 +59,8 @@ class DesktopFixTests(unittest.TestCase):
         self.assertIn("Log out", " ".join(notes))
         self.assertEqual(fix.status(ctx).state, State.DONE)
         self.assertEqual(ctx.system.path(fix.files[0].path).stat().st_mode & 0o777, 0o755)
-        self.assertIn("pam_fprintd.so", ctx.system.read_text(fix.files[2].path))
+        self.assertIn("pam_fprintd.so", ctx.system.read_text(fix.files[3].path))
+        self.assertIn("Wants=t1-touchbar.service", ctx.system.read_text(fix.files[2].path))
         commands = [["systemctl", "--user", "-M", "alice@", "daemon-reload"],
                     ["systemctl", "--user", "-M", "alice@", "try-restart", "t1-touchbar.service"]]
         self.assertEqual(self.runner.calls, commands)
@@ -69,7 +70,7 @@ class DesktopFixTests(unittest.TestCase):
         self.assertEqual(self.runner.calls, commands * 2)
         self.assertEqual(original.read_text(), "# original\n")
         self.assertFalse(ctx.system.exists(fix.files[0].path))
-        self.assertFalse(ctx.system.exists(fix.files[2].path))
+        self.assertFalse(ctx.system.exists(fix.files[3].path))
         self.assertEqual(fix.status(ctx).state, State.TODO)
 
     def test_lock_screen_service_needs_plasma(self):
@@ -79,7 +80,7 @@ class DesktopFixTests(unittest.TestCase):
         fix.install(ctx)
         self.assertEqual(fix.status(ctx).state, State.DONE)
         self.assertTrue(ctx.system.exists(fix.files[1].path))
-        self.assertFalse(ctx.system.exists(fix.files[2].path))
+        self.assertFalse(ctx.system.exists(fix.files[3].path))
 
     def test_lock_screen_service_never_prompts_after_a_match(self):
         ctx = self.context()
