@@ -6,7 +6,7 @@ import pkgutil
 
 from .base import Fix
 
-ORDER = ["t1-backup", "wifi", "sleep", "audio", "input", "t1bridge", "desktop", "fingerprint-login"]
+ORDER = ["t1-backup", "wifi", "sleep", "audio", "input", "t1bridge", "t1-wake", "desktop", "fingerprint-login"]
 
 
 def all_fixes() -> list[Fix]:

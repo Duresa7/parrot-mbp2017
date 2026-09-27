@@ -1,0 +1,96 @@
+#!/usr/bin/python3
+# Installed by parrot-mbp2017 (t1-wake).
+# systemd runs this just before sleep and just after waking, while the desktop
+# is still paused. After waking it turns the Touch Bar panel back on and
+# restarts the Touch ID key service if sleep stopped it, so the lock screen
+# finds both ready.
+"""Relight the Touch Bar and restore Touch ID after sleep."""
+
+import fcntl
+import glob
+import os
+import subprocess
+import sys
+
+T1_IDS = ("05ac", "8600")
+# appletbdrm parks the panel through this HID interface before sleep and never
+# unparks it: feature report 3, byte 1 is 1 while parked and 2 while awake.
+PANEL_INTERFACE = "06"
+PANEL_REPORT = 3
+PANEL_REPORT_LENGTH = 15
+PARKED, AWAKE = 1, 2
+RELAY = "t1bridge-keybag.service"
+
+
+def log(message):
+    print("parrot-mbp2017: " + message, file=sys.stderr)
+
+
+def read(path):
+    with open(path, encoding="ascii") as handle:
+        return handle.read().strip()
+
+
+def hidraw_ioctl(nr, size):
+    # _IOC(_IOC_READ | _IOC_WRITE, 'H', nr, size) from linux/hidraw.h.
+    return (3 << 30) | (size << 16) | (ord("H") << 8) | nr
+
+
+def panel_nodes():
+    for interface in glob.glob("/sys/bus/usb/devices/*:*"):
+        device = os.path.dirname(os.path.realpath(interface))
+        try:
+            ids = (read(os.path.join(device, "idVendor")), read(os.path.join(device, "idProduct")))
+            number = read(os.path.join(interface, "bInterfaceNumber"))
+        except OSError:
+            continue
+        if ids == T1_IDS and number == PANEL_INTERFACE:
+            for node in glob.glob(os.path.join(interface, "*", "hidraw", "hidraw*")):
+                yield "/dev/" + os.path.basename(node)
+
+
+def relight_panel():
+    for node in panel_nodes():
+        fd = os.open(node, os.O_RDWR | os.O_CLOEXEC)
+        try:
+            state = bytearray(64)
+            state[0] = PANEL_REPORT
+            length = fcntl.ioctl(fd, hidraw_ioctl(0x07, len(state)), state, True)
+            if length != PANEL_REPORT_LENGTH or state[1] != PARKED:
+                continue
+            awake = bytearray(PANEL_REPORT_LENGTH)
+            awake[0], awake[1] = PANEL_REPORT, AWAKE
+            fcntl.ioctl(fd, hidraw_ioctl(0x06, len(awake)), awake, True)
+            log("turned the Touch Bar panel back on")
+        finally:
+            os.close(fd)
+
+
+def restart_relay():
+    result = subprocess.run(["systemctl", "show", RELAY, "--property=LoadState,ActiveState,SubState"],
+                            capture_output=True, text=True, timeout=5, check=False)
+    state = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+    if state.get("LoadState") != "loaded":
+        return
+    # The relay's link to the T1 breaks during sleep and it exits. systemd
+    # would restart it after a delay that grows with every sleep; restart it
+    # now so Touch ID works on the lock screen straight away.
+    if state.get("ActiveState") == "failed" or state.get("SubState") == "auto-restart":
+        restarted = subprocess.run(["systemctl", "restart", RELAY], timeout=20, check=False)
+        log("restarted the Touch ID key service" if restarted.returncode == 0
+            else "could not restart the Touch ID key service; systemd will retry it")
+
+
+def main():
+    if sys.argv[1:2] != ["post"]:
+        return 0
+    for step in (relight_panel, restart_relay):
+        try:
+            step()
+        except (OSError, subprocess.SubprocessError) as error:
+            log(f"{step.__name__.replace('_', ' ')} failed: {error}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
