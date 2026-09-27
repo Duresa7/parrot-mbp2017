@@ -178,7 +178,8 @@ class CLITests(unittest.TestCase):
 
     def test_restore_delegation(self):
         system = self.fixture()
-        result, output = self.call(system, 'restore-t1', '--online')
+        with patch('mbp2017.cli.all_fixes', return_value=[]):
+            result, output = self.call(system, 'restore-t1', '--online')
         self.assertEqual(result, 1)
         self.assertIn('unavailable', output)
         received = []
