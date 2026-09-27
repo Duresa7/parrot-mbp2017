@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run the test suite
+        run: python -m unittest discover -s tests -v
+      - name: Byte-compile the package
+        run: python -m compileall -q mbp2017
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shellcheck
+        run: |
+          shellcheck \
+            packaging/t1bridge/build-debs.sh \
+            packaging/t1bridge/debian/t1bridge/postinst \
+            packaging/t1bridge/debian/t1bridge/prerm \
+            packaging/t1bridge/debian/t1bridge/postrm \
+            packaging/t1bridge/debian/t1bridge-dkms/postinst \
+            packaging/t1bridge/debian/t1bridge-dkms/prerm \
+            packaging/t1bridge/debian/t1bridge-dkms/postrm \
+            mbp2017/data/desktop-provider
