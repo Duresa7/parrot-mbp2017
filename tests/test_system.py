@@ -52,6 +52,14 @@ class SystemTests(unittest.TestCase):
         self.assertFalse(self.system.exists('/etc/new'))
         self.assertFalse(self.system.remove_file('test', '/etc/new'))
 
+    def test_read_text_defaults_for_directory_and_invalid_utf8(self):
+        self.system.makedirs('/directory')
+        self.system.path('/binary').write_bytes(b'\xff\xfe')
+        for path in ('/directory', '/binary'):
+            with self.subTest(path=path):
+                self.assertIsNone(self.system.read_text(path))
+                self.assertEqual(self.system.read_text(path, 'fallback'), 'fallback')
+
     def test_replaced_file_backup_survives_multiple_installs(self):
         self.write('/etc/example', 'original', 0o640)
         self.system.install_file('test', '/etc/example', 'new')
@@ -152,6 +160,8 @@ class SystemTests(unittest.TestCase):
         self.system.chown('/target', 1000, 1000)
         self.system.run(['would-not-exist'], mutating=True)
         self.system.run_streamed(['build'], log_path='/log')
+        self.system.extract_tar('/archive.tar', '/extracted')
+        self.system.remove_tree('/extracted')
         self.system.log('test')
         self.assertEqual(list(self.root.iterdir()), [])
         self.assertEqual(self.runner.calls, [])

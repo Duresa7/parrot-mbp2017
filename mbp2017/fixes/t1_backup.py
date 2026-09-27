@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import tarfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
+from typing import Iterator
 
 from .base import Context, Fix, FixError, State, Status
 from ..hardware import Hardware, probe
@@ -162,39 +164,38 @@ class T1BackupFix(Fix):
             if hashlib.sha256(data).hexdigest() != digest:
                 raise FixError(f"Checksum mismatch for {member}. The backup may be damaged.")
 
-    def _extract_tar(self, ctx: Context, tar_path: str, dest_dir: str) -> None:
-        host_dest = ctx.system.path(dest_dir)
-        host_dest.mkdir(parents=True, exist_ok=True)
-        with tarfile.open(ctx.system.path(tar_path), "r") as tar:
-            for member in tar.getmembers():
-                if member.issym() or member.islnk():
-                    raise FixError(f"{tar_path} contains a link ({member.name}). Refusing to extract it.")
-                member_path = PurePosixPath(member.name)
-                if member_path.is_absolute() or ".." in member_path.parts:
-                    raise FixError(f"{tar_path} contains an unsafe path ({member.name}). Refusing to extract it.")
-            tar.extractall(host_dest)
-
-    def _prepare_source(self, ctx: Context, source: str) -> tuple[str, str | None]:
+    @contextmanager
+    def _prepare_source(self, ctx: Context, source: str) -> Iterator[tuple[str, str | None]]:
         if ctx.system.exists(f"{source}/EFI/APPLE/EMBEDDEDOS/FDRData"):
             sums = f"{source}/SHA256SUMS"
             sums = sums if ctx.system.exists(sums) else None
             if sums:
                 self._verify_checksums(ctx, sums, source)
-            return source, sums
+            yield source, sums
+            return
         tar_matches = sorted(ctx.system.glob(f"{source}/EFI-APPLE-*.tar"))
         if not tar_matches:
             raise FixError(f"{source} is not a T1 backup: it has neither "
                           "EFI/APPLE/EMBEDDEDOS/FDRData nor an EFI-APPLE-*.tar archive.")
         tar_path = tar_matches[-1]
         extract_dir = f"{RESTORE_WORKDIR}/{PurePosixPath(tar_path).stem}"
-        self._extract_tar(ctx, tar_path, extract_dir)
-        if not ctx.system.exists(f"{extract_dir}/EFI/APPLE/EMBEDDEDOS/FDRData"):
-            raise FixError(f"{tar_path} does not contain EFI/APPLE/EMBEDDEDOS/FDRData.")
-        sums = f"{source}/SHA256SUMS"
-        sums = sums if ctx.system.exists(sums) else None
-        if sums:
-            self._verify_checksums(ctx, sums, extract_dir)
-        return extract_dir, sums
+        ctx.system.makedirs(ESP_BACKUP_DIR, 0o700)
+        ctx.system.makedirs(RESTORE_WORKDIR, 0o700)
+        try:
+            ctx.system.makedirs(extract_dir, 0o700)
+            try:
+                ctx.system.extract_tar(tar_path, extract_dir)
+            except (ValueError, tarfile.TarError) as exc:
+                raise FixError(str(exc)) from exc
+            if not ctx.system.exists(f"{extract_dir}/EFI/APPLE/EMBEDDEDOS/FDRData"):
+                raise FixError(f"{tar_path} does not contain EFI/APPLE/EMBEDDEDOS/FDRData.")
+            sums = f"{source}/SHA256SUMS"
+            sums = sums if ctx.system.exists(sums) else None
+            if sums:
+                self._verify_checksums(ctx, sums, extract_dir)
+            yield extract_dir, sums
+        finally:
+            ctx.system.remove_tree(extract_dir)
 
     def _walk_files(self, ctx: Context, base: str) -> list[str]:
         files: list[str] = []
@@ -238,9 +239,9 @@ class T1BackupFix(Fix):
         if ctx.system.dry_run:
             ctx.ui.info(f"would restore T1 data from {source} onto {ctx.hw.esp}")
             return []
-        base_dir, sums_path = self._prepare_source(ctx, source)
-        self._copy_efi_apple(ctx, f"{base_dir}/EFI/APPLE", f"{ctx.hw.esp}/EFI/APPLE")
-        self._verify_restored(ctx, ctx.hw.esp, sums_path)
+        with self._prepare_source(ctx, source) as (base_dir, sums_path):
+            self._copy_efi_apple(ctx, f"{base_dir}/EFI/APPLE", f"{ctx.hw.esp}/EFI/APPLE")
+            self._verify_restored(ctx, ctx.hw.esp, sums_path)
         return [
             "Shut down the Mac fully, then power it back on: a warm reboot does not reset the T1.",
             "The T1 should then show up as 05ac:8600 (check with 'sudo parrot-mbp2017 status').",
@@ -248,7 +249,8 @@ class T1BackupFix(Fix):
         ]
 
     def _legacy_driver_present(self, ctx: Context) -> bool:
-        return ctx.system.exists("/etc/modprobe.d/apple-touchbar.conf")
+        return (ctx.system.exists("/etc/modprobe.d/apple-touchbar.conf")
+                or bool(ctx.system.run(["dkms", "status", "apple-ib-drv"], check=False).stdout.strip()))
 
     def _restore_online(self, ctx: Context) -> list[str]:
         if ctx.hw.t1_state != "recovery":
@@ -287,11 +289,13 @@ class T1BackupFix(Fix):
         ctx.system.run(["modprobe", "acpi_call"], mutating=True)
         ctx.system.run(["systemctl", "stop", "usbmuxd"], check=False, mutating=True)
         if ctx.system.is_dir(T1_REVIVE_DIR):
-            ctx.system.run(["git", "-C", T1_REVIVE_DIR, "fetch"], mutating=True)
+            ctx.system.run(["git", "-c", f"safe.directory={T1_REVIVE_DIR}", "-C", T1_REVIVE_DIR,
+                            "fetch"], mutating=True)
         else:
             ctx.ui.info(f"Cloning t1-revive from {T1_REVIVE_REPO}.")
             ctx.system.run(["git", "clone", T1_REVIVE_REPO, T1_REVIVE_DIR], mutating=True)
-        ctx.system.run(["git", "-C", T1_REVIVE_DIR, "checkout", "--detach", T1_REVIVE_COMMIT], mutating=True)
+        ctx.system.run(["git", "-c", f"safe.directory={T1_REVIVE_DIR}", "-C", T1_REVIVE_DIR,
+                        "checkout", "--detach", T1_REVIVE_COMMIT], mutating=True)
         ctx.system.run(["chown", "-R", f"{user.uid}:{user.gid}", T1_REVIVE_DIR], mutating=True)
         ctx.ui.info("Building t1-revive.")
         code = ctx.system.run_streamed(["runuser", "-u", user.name, "--", "bash", "build.sh"],
@@ -309,6 +313,7 @@ class T1BackupFix(Fix):
         esp_parent = str(PurePosixPath(ctx.hw.esp).parent)
         esp_name = PurePosixPath(ctx.hw.esp).name
         esp_backup = f"{ESP_BACKUP_DIR}/esp-before-t1-revive-{_today()}.tar.gz"
+        ctx.system.makedirs(ESP_BACKUP_DIR, 0o700)
         ctx.system.run(["tar", "-C", esp_parent, "-czf", esp_backup, esp_name], mutating=True)
         ctx.ui.info("Regenerating the T1 firmware through Apple's servers. This takes a few minutes.")
 

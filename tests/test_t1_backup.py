@@ -127,19 +127,84 @@ class T1BackupTests(unittest.TestCase):
         self.assertEqual(
             ctx.system.read_text(f'{ctx.hw.esp}/EFI/APPLE/EMBEDDEDOS/combined.memboot'),
             'fixture firmware\n')
+        self.assertEqual(ctx.system.listdir(t1_backup_module.RESTORE_WORKDIR), [])
+        self.assertTrue(ctx.system.exists(f'{backup_dir}/EFI-APPLE-2026-01-03.tar'))
+
+    def test_tar_restore_private_modes_and_data_filter(self):
+        ctx = self.fixture()
+        fix = T1BackupFix()
+        fix.install(ctx)
+        shutil.rmtree(ctx.system.path(f'{ctx.hw.esp}/EFI/APPLE'))
+        extractall = tarfile.TarFile.extractall
+        seen = []
+
+        def extract(tar, path, **kwargs):
+            for directory in (ctx.system.path(t1_backup_module.ESP_BACKUP_DIR),
+                              ctx.system.path(t1_backup_module.RESTORE_WORKDIR), path):
+                self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(kwargs, {'filter': 'data'} if hasattr(tarfile, 'data_filter') else {})
+            seen.append(path)
+            return extractall(tar, path, **kwargs)
+
+        with patch.object(tarfile.TarFile, 'extractall', new=extract):
+            fix.restore_t1(ctx, self.backup_dir(ctx))
+        self.assertEqual(len(seen), 1)
+        self.assertFalse(seen[0].exists())
+
+    def test_tar_restore_without_filter_support(self):
+        ctx = self.fixture()
+        fix = T1BackupFix()
+        fix.install(ctx)
+        shutil.rmtree(ctx.system.path(f'{ctx.hw.esp}/EFI/APPLE'))
+        extractall = tarfile.TarFile.extractall
+        seen = []
+
+        def extract(tar, path, **kwargs):
+            self.assertEqual(kwargs, {})
+            seen.append(path)
+            return extractall(tar, path, **kwargs)
+
+        with patch('mbp2017.system.hasattr', return_value=False, create=True), \
+                patch.object(tarfile.TarFile, 'extractall', new=extract):
+            fix.restore_t1(ctx, self.backup_dir(ctx))
+        self.assertEqual(len(seen), 1)
+        self.assertFalse(seen[0].exists())
+
+    def test_tar_restore_cleans_up_on_failure_or_interrupt(self):
+        for stage, error in [('extract_tar', tarfile.ReadError('damaged archive')),
+                             ('_verify_checksums', FixError('checksum mismatch')),
+                             ('_copy_efi_apple', OSError('copy failed')),
+                             ('_verify_restored', FixError('restore incomplete')),
+                             ('_copy_efi_apple', KeyboardInterrupt())]:
+            with self.subTest(stage=stage, error=type(error)):
+                ctx = self.fixture()
+                fix = T1BackupFix()
+                fix.install(ctx)
+                shutil.rmtree(ctx.system.path(f'{ctx.hw.esp}/EFI/APPLE'))
+                target = ctx.system if stage == 'extract_tar' else fix
+                expected = FixError if isinstance(error, tarfile.TarError) else type(error)
+                with patch.object(target, stage, side_effect=error):
+                    with self.assertRaises(expected):
+                        fix.restore_t1(ctx, self.backup_dir(ctx))
+                self.assertEqual(ctx.system.listdir(t1_backup_module.RESTORE_WORKDIR), [])
+                self.assertTrue(ctx.system.glob(f'{self.backup_dir(ctx)}/EFI-APPLE-*.tar'))
 
     def test_restore_from_rejects_path_traversal_in_tar(self):
-        ctx = self.fixture(t1_data=False)
-        source = '/mnt/bad-backup'
-        host_source = ctx.system.path(source)
-        host_source.mkdir(parents=True)
-        with tarfile.open(host_source / 'EFI-APPLE-2026-01-01.tar', 'w') as tar:
-            data = b'x'
-            info = tarfile.TarInfo(name='../evil')
-            info.size = len(data)
-            tar.addfile(info, io.BytesIO(data))
-        with self.assertRaises(FixError):
-            T1BackupFix().restore_t1(ctx, source)
+        for name, kind in [('../evil', tarfile.REGTYPE), ('/evil', tarfile.REGTYPE),
+                           ('link', tarfile.SYMTYPE), ('link', tarfile.LNKTYPE)]:
+            with self.subTest(name=name, kind=kind):
+                ctx = self.fixture(t1_data=False)
+                source = '/mnt/bad-backup'
+                host_source = ctx.system.path(source)
+                host_source.mkdir(parents=True)
+                with tarfile.open(host_source / 'EFI-APPLE-2026-01-01.tar', 'w') as tar:
+                    info = tarfile.TarInfo(name=name)
+                    info.type = kind
+                    info.linkname = 'target' if kind != tarfile.REGTYPE else ''
+                    tar.addfile(info)
+                with self.assertRaises(FixError):
+                    T1BackupFix().restore_t1(ctx, source)
+                self.assertEqual(ctx.system.listdir(t1_backup_module.RESTORE_WORKDIR), [])
 
     # -- restore-t1 --online ---------------------------------------------
 
@@ -172,10 +237,33 @@ class T1BackupTests(unittest.TestCase):
         ctx.ui.assume_yes = False
         notes = T1BackupFix().restore_t1(ctx, 'online')
         self.assertEqual(notes, ['No changes made.'])
-        self.assertEqual(ctx.system.runner.calls, [])
+        self.assertEqual(ctx.system.runner.calls, [['dkms', 'status', 'apple-ib-drv']])
+
+    def test_online_refuses_with_dkms_only_legacy_driver(self):
+        for state in ('added', 'built', 'installed'):
+            with self.subTest(state=state):
+                ctx = self.fixture(t1='recovery', t1_data=False, scripts={
+                    ('dkms', 'status', 'apple-ib-drv'): Result(0, f'apple-ib-drv/0.1: {state}\n'),
+                })
+                charger = ctx.system.path('/sys/class/power_supply/ADP1/online')
+                charger.parent.mkdir(parents=True)
+                charger.write_text('1\n')
+                with self.assertRaisesRegex(FixError, 'legacy apple-ib-drv'):
+                    T1BackupFix().restore_t1(ctx, 'online')
+                self.assertEqual(ctx.system.runner.calls, [['dkms', 'status', 'apple-ib-drv']])
 
     def test_online_restore_happy_path(self):
+        self.online_restore_happy_path()
+
+    def test_online_restore_existing_clone_uses_safe_directory(self):
+        self.online_restore_happy_path(existing_clone=True)
+
+    def online_restore_happy_path(self, existing_clone=False):
         ctx = self.fixture(t1='recovery', t1_data=False)
+        clone = t1_backup_module.T1_REVIVE_DIR
+        if existing_clone:
+            ctx.system.makedirs(clone)
+        self.assertFalse(ctx.system.exists(t1_backup_module.ESP_BACKUP_DIR))
         charger = ctx.system.path('/sys/class/power_supply/ADP1/online')
         charger.parent.mkdir(parents=True)
         charger.write_text('1\n')
@@ -186,7 +274,7 @@ class T1BackupTests(unittest.TestCase):
             ('modprobe', 'acpi_call'): Result(0),
             ('systemctl', 'stop', 'usbmuxd'): Result(0),
             ('git', 'clone', t1_backup_module.T1_REVIVE_REPO, t1_backup_module.T1_REVIVE_DIR): Result(0),
-            ('git', '-C', t1_backup_module.T1_REVIVE_DIR, 'checkout', '--detach',
+            ('git', '-c', f'safe.directory={t1_backup_module.T1_REVIVE_DIR}', '-C', t1_backup_module.T1_REVIVE_DIR, 'checkout', '--detach',
              t1_backup_module.T1_REVIVE_COMMIT): Result(0),
             ('chown', '-R'): Result(0),
             ('runuser', '-u', 'alice', '--', 'bash', 'build.sh'): Result(0, 'built\n'),
@@ -194,7 +282,16 @@ class T1BackupTests(unittest.TestCase):
             ('tar', '-C'): Result(0),
             ('systemd-inhibit',): Result(0, '=== regenerate complete\n'),
         }
-        ctx.system.runner = FakeRunner(scripts)
+        runner = FakeRunner(scripts)
+
+        def run(argv, opts):
+            if argv[0] == 'tar':
+                directory = ctx.system.path(t1_backup_module.ESP_BACKUP_DIR)
+                self.assertTrue(directory.is_dir())
+                self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
+            return runner(argv, opts)
+
+        ctx.system.runner = run
         original_run_streamed = ctx.system.run_streamed
 
         def run_streamed_with_effects(argv, **kwargs):
@@ -209,7 +306,12 @@ class T1BackupTests(unittest.TestCase):
         fake_hw_after = replace(ctx.hw, t1_state='running')
         with patch.object(t1_backup_module, 'probe', return_value=fake_hw_after):
             notes = T1BackupFix().restore_t1(ctx, 'online')
-        calls = ctx.system.runner.calls
+        calls = runner.calls
+        git = ['git', '-c', f'safe.directory={clone}', '-C', clone]
+        self.assertIn([*git, 'checkout', '--detach', t1_backup_module.T1_REVIVE_COMMIT], calls)
+        if existing_clone:
+            self.assertIn([*git, 'fetch'], calls)
+            self.assertFalse(any(call[:2] == ['git', 'clone'] for call in calls))
         self.assertIn(['modprobe', 'acpi_call'], calls)
         self.assertIn(['systemctl', 'stop', 'usbmuxd'], calls)
         self.assertIn(['runuser', '-u', 'alice', '--', 'bash', 'build.sh'], calls)
@@ -230,7 +332,7 @@ class T1BackupTests(unittest.TestCase):
             ('modprobe', 'acpi_call'): Result(0),
             ('systemctl', 'stop', 'usbmuxd'): Result(0),
             ('git', 'clone', t1_backup_module.T1_REVIVE_REPO, t1_backup_module.T1_REVIVE_DIR): Result(0),
-            ('git', '-C', t1_backup_module.T1_REVIVE_DIR, 'checkout', '--detach',
+            ('git', '-c', f'safe.directory={t1_backup_module.T1_REVIVE_DIR}', '-C', t1_backup_module.T1_REVIVE_DIR, 'checkout', '--detach',
              t1_backup_module.T1_REVIVE_COMMIT): Result(0),
             ('chown', '-R'): Result(0),
             ('runuser', '-u', 'alice', '--', 'bash', 'build.sh'): Result(0),

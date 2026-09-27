@@ -10,8 +10,10 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shlex
+import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from typing import Callable, TextIO
 
@@ -74,7 +76,7 @@ class System:
         try:
             with self.path(p).open(encoding="utf-8", newline="") as stream:
                 return stream.read()
-        except (FileNotFoundError, PermissionError):
+        except (FileNotFoundError, PermissionError, IsADirectoryError, UnicodeDecodeError):
             return default
 
     def read_bytes(self, p: str) -> bytes:
@@ -423,6 +425,30 @@ class System:
             return
         os.chown(self.path(path), uid, gid)
         self.log(f"changed owner: {path}")
+
+    def extract_tar(self, src: str, dst: str) -> None:
+        if self.dry_run:
+            self._would(f"extract archive: {src} to {dst}")
+            return
+        with tarfile.open(self.path(src), "r") as tar:
+            for member in tar.getmembers():
+                if member.issym() or member.islnk():
+                    raise ValueError(f"{src} contains a link ({member.name}). Refusing to extract it.")
+                member_path = PurePosixPath(member.name)
+                if member_path.is_absolute() or ".." in member_path.parts:
+                    raise ValueError(f"{src} contains an unsafe path ({member.name}). Refusing to extract it.")
+            if hasattr(tarfile, "data_filter"):
+                tar.extractall(self.path(dst), filter="data")
+            else:
+                tar.extractall(self.path(dst))
+
+    def remove_tree(self, path: str) -> None:
+        if self.dry_run:
+            self._would(f"remove directory: {path}")
+            return
+        if self.exists(path):
+            shutil.rmtree(self.path(path))
+            self.log(f"removed directory: {path}")
 
     def copy_file(self, src: str, dst: str, mode: int,
                   owner: tuple[int, int] | None = None) -> None:
